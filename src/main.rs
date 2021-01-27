@@ -2,16 +2,18 @@ extern crate env_logger;
 extern crate log;
 
 use log::info;
-use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path;
+use std::{env, thread, time};
 
 mod cartridge;
 mod cpu;
 mod mmu;
 
 use crate::cpu::CPU;
+
+const CPU_CYCLES_PER_FRAME: u32 = 70224;
 
 fn open_rom_file(filepath: &String) -> Vec<u8> {
     let mut data = Vec::<u8>::new();
@@ -31,14 +33,18 @@ fn main() {
 
     let mut cpu = CPU::new(bios, rom);
 
-    println!("read  0x0000: {:x}", cpu.mmu.read_byte(0x0000));
-    println!("read  0x0104: {:x}", cpu.mmu.read_byte(0x0104));
-    let v: u8 = 0xff;
-    cpu.mmu.write_byte(0x0000, v);
-    println!("write 0x0000: {:x}", v);
-    println!("read  0x0000: {:x}", cpu.mmu.read_byte(0x0000));
-    cpu.mmu.write_byte(0xc000, v);
-    println!("write 0xc000: {:x}", v);
-    println!("read  0xc000: {:x}", cpu.mmu.read_byte(0xc000));
-    println!("{:?}", cpu)
+    loop {
+        let now = time::Instant::now();
+        let mut elapsed_tick: u32 = 0;
+
+        while elapsed_tick < CPU_CYCLES_PER_FRAME {
+            elapsed_tick += cpu.run() as u32;
+        }
+
+        let wait = time::Duration::from_micros(1 / 60 * 1000 * 1000); // elapsed time per frame at 60fps
+        let elapsed = now.elapsed();
+        if wait > elapsed {
+            thread::sleep(wait - elapsed);
+        }
+    }
 }
