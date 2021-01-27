@@ -1,4 +1,5 @@
 use crate::cartridge::Cartridge;
+use std::fmt;
 
 const WORKING_RAM_SIZE: usize = 8 * 1024;
 const HIGH_RAM_SIZE: usize = 128;
@@ -52,5 +53,11 @@ impl MMU {
             0xffff..=0xffff => unimplemented!("write: Interrupt Enable Register: {:x}", addr),
             _ => unreachable!("write: not support the address: {:x}", addr),
         }
+    }
+}
+
+impl fmt::Debug for MMU {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "no display")
     }
 }

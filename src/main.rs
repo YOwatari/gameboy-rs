@@ -29,8 +29,16 @@ fn main() {
     let bios = open_rom_file(&args[1]);
     let rom = open_rom_file(&args[2]);
 
-    let cpu = CPU::new(bios, rom);
+    let mut cpu = CPU::new(bios, rom);
 
-    println!("0x0000: {:x}", cpu.mmu.read_byte(0x0000));
-    println!("0x0104: {:x}", cpu.mmu.read_byte(0x0104));
+    println!("read  0x0000: {:x}", cpu.mmu.read_byte(0x0000));
+    println!("read  0x0104: {:x}", cpu.mmu.read_byte(0x0104));
+    let v: u8 = 0xff;
+    cpu.mmu.write_byte(0x0000, v);
+    println!("write 0x0000: {:x}", v);
+    println!("read  0x0000: {:x}", cpu.mmu.read_byte(0x0000));
+    cpu.mmu.write_byte(0xc000, v);
+    println!("write 0xc000: {:x}", v);
+    println!("read  0xc000: {:x}", cpu.mmu.read_byte(0xc000));
+    println!("{:?}", cpu)
 }
