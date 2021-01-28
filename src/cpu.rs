@@ -57,8 +57,9 @@ impl CPU {
         12
     }
 
-    fn _xor_n_set_flag(&mut self, result: u8) {
-        self.register.set_flag(Flags::Z, result == 0);
+    fn _xor_n(&mut self, n: u8) {
+        self.register.a ^= n;
+        self.register.set_flag(Flags::Z, self.register.a == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
         self.register.set_flag(Flags::C, false);
@@ -68,56 +69,47 @@ impl CPU {
         match opcode {
             0xaf => {
                 let n = self.register.a;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xa8 => {
                 let n = self.register.b;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xa9 => {
                 let n = self.register.c;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xaa => {
                 let n = self.register.d;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xab => {
                 let n = self.register.e;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xac => {
                 let n = self.register.h;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xad => {
                 let n = self.register.l;
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 4
             }
             0xae => {
                 let n = self.mmu.read_byte(self.register.read_word(HL));
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 8
             }
             0xee => {
                 let n = self.fetch_byte();
-                self.register.a ^= n;
-                self._xor_n_set_flag(self.register.a);
+                self._xor_n(n);
                 8
             }
             _ => unreachable!("not XOR n: 0x{:02x}", opcode),
