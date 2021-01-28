@@ -1,4 +1,5 @@
 use crate::cartridge::Cartridge;
+use crate::ppu::PPU;
 use std::fmt;
 
 const WORKING_RAM_SIZE: usize = 8 * 1024;
@@ -8,6 +9,7 @@ pub struct MMU {
     cartridge: Cartridge,
     wram: [u8; WORKING_RAM_SIZE],
     hram: [u8; HIGH_RAM_SIZE],
+    ppu: PPU,
 }
 
 impl MMU {
@@ -16,13 +18,14 @@ impl MMU {
             cartridge: Cartridge::new(bios, rom),
             wram: [0; WORKING_RAM_SIZE],
             hram: [0; HIGH_RAM_SIZE],
+            ppu: PPU::new(),
         }
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7fff => self.cartridge.read_byte(addr),
-            0x8000..=0x9fff => unimplemented!("read: Video RAM: {:x}", addr),
+            0x8000..=0x9fff => self.ppu.read_byte(addr),
             0xa000..=0xbeff => unimplemented!("read: Cartridge RAM: {:x}", addr),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize],
             0xe000..=0xfdff => {
@@ -44,7 +47,7 @@ impl MMU {
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
             0x0000..=0x7fff => (),
-            0x8000..=0x9fff => unimplemented!("write: Video RAM: {:x}", addr),
+            0x8000..=0x9fff => self.ppu.write_byte(addr, v),
             0xa000..=0xbeff => unimplemented!("write: Cartridge RAM: {:x}", addr),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v,
             0xe000..=0xfdff => {

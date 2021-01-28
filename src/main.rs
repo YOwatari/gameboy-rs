@@ -10,6 +10,7 @@ use std::{env, thread, time};
 mod cartridge;
 mod cpu;
 mod mmu;
+mod ppu;
 
 use crate::cpu::CPU;
 
