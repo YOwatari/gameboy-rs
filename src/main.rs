@@ -41,7 +41,8 @@ fn main() {
             elapsed_tick += cpu.run() as u32;
         }
 
-        let wait = time::Duration::from_micros(1 / 60 * 1000 * 1000); // elapsed time per frame at 60fps
+        // elapsed time per frame at 60fps
+        let wait = time::Duration::from_micros(1 / 60 * 1000 * 1000);
         let elapsed = now.elapsed();
         if wait > elapsed {
             thread::sleep(wait - elapsed);

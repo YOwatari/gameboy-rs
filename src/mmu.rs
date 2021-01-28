@@ -37,6 +37,10 @@ impl MMU {
         }
     }
 
+    pub fn read_word(&self, addr: u16) -> u16 {
+        self.read_byte(addr) as u16 | (self.read_byte(addr + 1) as u16) << 8
+    }
+
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
             0x0000..=0x7fff => (),
@@ -53,6 +57,11 @@ impl MMU {
             0xffff..=0xffff => unimplemented!("write: Interrupt Enable Register: {:x}", addr),
             _ => unreachable!("write: not support the address: {:x}", addr),
         }
+    }
+
+    pub fn write_word(&mut self, addr: u16, v: u16) {
+        self.write_byte(addr, v as u8);
+        self.write_byte(addr + 1, (v >> 8) as u8);
     }
 }
 
