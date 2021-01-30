@@ -4,7 +4,6 @@ use crate::cpu::register::Flags;
 use crate::cpu::register::Register;
 use crate::cpu::register::Register16::{AF, BC, DE, HL};
 use crate::mmu::MMU;
-use crate::open_rom_file;
 
 #[derive(Debug)]
 pub struct CPU {
@@ -37,12 +36,40 @@ impl CPU {
         nn
     }
 
+    fn read_r8(&self, idx: u8) -> u8 {
+        match idx {
+            0 => self.register.b,
+            1 => self.register.c,
+            2 => self.register.d,
+            3 => self.register.e,
+            4 => self.register.h,
+            5 => self.register.l,
+            6 => {
+                let hl = self.register.read_word(HL);
+                self.mmu.read_byte(hl)
+            }
+            7 => self.register.a,
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
+    fn read_cc(&self, idx: u8) -> bool {
+        match idx {
+            0 => !self.register.get_flag(Flags::Z),
+            1 => self.register.get_flag(Flags::Z),
+            2 => !self.register.get_flag(Flags::C),
+            3 => self.register.get_flag(Flags::C),
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
     fn execute(&mut self, opcode: u8) -> u32 {
         match opcode {
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_n_nn(opcode),
             0xaf | 0xa8 | 0xa9 | 0xaa | 0xab | 0xac | 0xad | 0xae | 0xee => self.xor_n(opcode),
             0x32 => self.ldd_hl_a(),
             0xcb => self.prefix(),
+            0x20 | 0x28 | 0x30 | 0x38 => self.jr_cc_n(opcode),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -107,7 +134,6 @@ impl CPU {
         let b = (opcode & 0b_0011_1000) >> 3;
         let r8 = opcode & 0b_0000_0111;
         let reg = self.read_r8(r8);
-
         let result = reg & (1 << b);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
@@ -119,20 +145,16 @@ impl CPU {
         }
     }
 
-    fn read_r8(&self, r8: u8) -> u8 {
-        match r8 {
-            0 => self.register.b,
-            1 => self.register.c,
-            2 => self.register.d,
-            3 => self.register.e,
-            4 => self.register.h,
-            5 => self.register.l,
-            6 => {
-                let hl = self.register.read_word(HL);
-                self.mmu.read_byte(hl)
-            }
-            7 => self.register.a,
-            _ => unreachable!("invalid operand index: {}", r8),
+    fn jr_cc_n(&mut self, opcode: u8) -> u32 {
+        let b = (opcode & 0b_0011_1000) >> 3;
+        let cc = self.read_cc(b - 4);
+        let n = self.fetch_byte() as i8;
+
+        if cc {
+            self.register.pc = self.register.pc.wrapping_add(n as u16);
+            12
+        } else {
+            8
         }
     }
 }
