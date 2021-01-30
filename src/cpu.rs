@@ -98,6 +98,7 @@ impl CPU {
                 self.ld_n_a(opcode)
             }
             0xe0 => self.ldh_n_a(),
+            0xcd => self.call_nn(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -284,5 +285,23 @@ impl CPU {
         let n = self.fetch_byte();
         self.mmu.write_byte(0xff00 | (n as u16), self.register.a);
         12
+    }
+
+    fn call_nn(&mut self) -> u32 {
+        let nn = self.fetch_word();
+        self.push_stack(self.register.pc);
+        self.register.pc = nn;
+        12
+    }
+
+    fn push_stack(&mut self, v: u16) {
+        self.register.sp = self.register.sp.wrapping_sub(2);
+        self.mmu.write_word(self.register.sp, v);
+    }
+
+    fn pop_stack(&mut self) -> u16 {
+        let nn = self.mmu.read_word(self.register.sp);
+        self.register.sp = self.register.sp.wrapping_add(2);
+        nn
     }
 }
