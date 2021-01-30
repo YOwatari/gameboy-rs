@@ -93,6 +93,7 @@ impl CPU {
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e => self.ld_nn_n(opcode),
             0x78..=0x7f | 0x0a | 0x1a | 0xfa | 0x3e => self.ld_a_n(opcode),
             0xe2 => self.ld_c_a(),
+            0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc_n(opcode),
             //0xe0 => self.ldd_hl_a(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
@@ -226,6 +227,21 @@ impl CPU {
         let addr = 0xff00 | (self.register.c as u16);
         self.mmu.write_byte(addr, self.register.a);
         8
+    }
+
+    fn inc_n(&mut self, opcode: u8) -> u32 {
+        let r8 = opcode & 0b_0000_0111;
+        let n = self.read_r8(r8);
+        let result = n.wrapping_add(1);
+        self.write_r8(r8, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, n & 0x0f == 0x0f);
+
+        match r8 {
+            6 => 12,
+            _ => 4,
+        }
     }
 
     /*
