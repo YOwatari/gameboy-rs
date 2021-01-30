@@ -92,6 +92,7 @@ impl CPU {
             0x20 | 0x28 | 0x30 | 0x38 => self.jr_cc_n(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e => self.ld_nn_n(opcode),
             0x78..=0x7f | 0x0a | 0x1a | 0xfa | 0x3e => self.ld_a_n(opcode),
+            0xe2 => self.ld_c_a(),
             //0xe0 => self.ldd_hl_a(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
@@ -219,6 +220,12 @@ impl CPU {
             0x3e => self.ld_nn_n(opcode),
             _ => unreachable!("not LD A,n: 0x{:02x}", opcode),
         }
+    }
+
+    fn ld_c_a(&mut self) -> u32 {
+        let addr = 0xff00 | (self.register.c as u16);
+        self.mmu.write_byte(addr, self.register.a);
+        8
     }
 
     /*
