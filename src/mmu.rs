@@ -1,5 +1,7 @@
+use crate::apu::APU;
 use crate::cartridge::Cartridge;
 use crate::ppu::PPU;
+
 use std::fmt;
 
 const WORKING_RAM_SIZE: usize = 8 * 1024;
@@ -10,6 +12,7 @@ pub struct MMU {
     wram: [u8; WORKING_RAM_SIZE],
     hram: [u8; HIGH_RAM_SIZE],
     ppu: PPU,
+    apu: APU,
 }
 
 impl MMU {
@@ -19,6 +22,7 @@ impl MMU {
             wram: [0; WORKING_RAM_SIZE],
             hram: [0; HIGH_RAM_SIZE],
             ppu: PPU::new(),
+            apu: APU::new(),
         }
     }
 
@@ -33,7 +37,8 @@ impl MMU {
             }
             0xfe00..=0xfe9f => unimplemented!("read: OAM: {:x}", addr),
             0xfea0..=0xfeff => 0xff, // unused
-            0xff00..=0xff7f => unimplemented!("read: I/O register: {:x}", addr),
+            0xff00..=0xff0f | 0xff40..=0xff7f => unimplemented!("read: I/O register: {:x}", addr),
+            0xff10..=0xff3f => self.ppu.read_byte(addr),
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize],
             0xffff..=0xffff => unimplemented!("read: Interrupt Enable Register: {:x}", addr),
             _ => 0xff,
@@ -51,12 +56,16 @@ impl MMU {
             0xa000..=0xbeff => unimplemented!("write: Cartridge RAM: {:04x} {:02x}", addr, v),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v,
             0xe000..=0xfdff => {
-                self.wram[((addr - 0x2000) & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v
+                self.wram[((addr - 0x2000) & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v;
             }
             0xfe00..=0xfe9f => unimplemented!("write: OAM: {:04x} {:02x}", addr, v),
             0xfea0..=0xfeff => (),
-            0xff00..=0xff7f => unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
-            //0xff10..=0xff3f => {}
+            0xff00..=0xff0f | 0xff40..=0xff7f => {
+                unimplemented!("write: I/O register: {:04x} {:02x}", addr, v)
+            }
+            0xff10..=0xff3f => {
+                self.apu.write_byte(addr, v);
+            }
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
             0xffff..=0xffff => {
                 unimplemented!("write: Interrupt Enable Register: {:04x} {:02x}", addr, v)

@@ -7,6 +7,7 @@ use std::io::Read;
 use std::path;
 use std::{env, thread, time};
 
+mod apu;
 mod cartridge;
 mod cpu;
 mod mmu;
