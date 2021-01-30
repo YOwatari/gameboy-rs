@@ -48,17 +48,20 @@ impl MMU {
         match addr {
             0x0000..=0x7fff => (),
             0x8000..=0x9fff => self.ppu.write_byte(addr, v),
-            0xa000..=0xbeff => unimplemented!("write: Cartridge RAM: {:x}", addr),
+            0xa000..=0xbeff => unimplemented!("write: Cartridge RAM: {:04x} {:02x}", addr, v),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v,
             0xe000..=0xfdff => {
                 self.wram[((addr - 0x2000) & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v
             }
-            0xfe00..=0xfe9f => unimplemented!("write: OAM: {:x}", addr),
+            0xfe00..=0xfe9f => unimplemented!("write: OAM: {:04x} {:02x}", addr, v),
             0xfea0..=0xfeff => (),
-            0xff00..=0xff7f => unimplemented!("write: I/O register: {:x}", addr),
+            0xff00..=0xff7f => unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
+            //0xff10..=0xff3f => {}
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
-            0xffff..=0xffff => unimplemented!("write: Interrupt Enable Register: {:x}", addr),
-            _ => unreachable!("write: not support the address: {:x}", addr),
+            0xffff..=0xffff => {
+                unimplemented!("write: Interrupt Enable Register: {:04x} {:02x}", addr, v)
+            }
+            _ => unreachable!("write: not support the address: {:04x} {:02x}", addr, v),
         }
     }
 

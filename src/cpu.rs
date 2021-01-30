@@ -5,6 +5,8 @@ use crate::cpu::register::Register;
 use crate::cpu::register::Register16::{AF, BC, DE, HL};
 use crate::mmu::MMU;
 
+use log::info;
+
 #[derive(Debug)]
 pub struct CPU {
     register: Register,
@@ -20,6 +22,7 @@ impl CPU {
     }
 
     pub fn run(&mut self) -> u32 {
+        info!("address: {:04x}", self.register.pc);
         let opcode = self.fetch_byte();
         self.execute(opcode)
     }
@@ -53,6 +56,23 @@ impl CPU {
         }
     }
 
+    fn write_r8(&mut self, idx: u8, v: u8) {
+        match idx {
+            0 => self.register.b = v,
+            1 => self.register.c = v,
+            2 => self.register.d = v,
+            3 => self.register.e = v,
+            4 => self.register.h = v,
+            5 => self.register.l = v,
+            6 => {
+                let hl = self.register.read_word(HL);
+                self.mmu.write_byte(hl, v);
+            }
+            7 => self.register.a = v,
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
     fn read_cc(&self, idx: u8) -> bool {
         match idx {
             0 => !self.register.get_flag(Flags::Z),
@@ -70,6 +90,9 @@ impl CPU {
             0x32 => self.ldd_hl_a(),
             0xcb => self.prefix(),
             0x20 | 0x28 | 0x30 | 0x38 => self.jr_cc_n(opcode),
+            0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e => self.ld_nn_n(opcode),
+            0x78..=0x7f | 0x0a | 0x1a | 0xfa | 0x3e => self.ld_a_n(opcode),
+            //0xe0 => self.ldd_hl_a(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -157,4 +180,52 @@ impl CPU {
             8
         }
     }
+
+    fn ld_nn_n(&mut self, opcode: u8) -> u32 {
+        let b = (opcode & 0b_0011_1000) >> 3;
+        let n = self.fetch_byte();
+        self.write_r8(b, n);
+        8
+    }
+
+    fn ld_a_n(&mut self, opcode: u8) -> u32 {
+        match opcode {
+            0x78..=0x7f => {
+                let b = (opcode & 0b_0011_1000) >> 3;
+                let r8 = opcode & 0b_0000_0111;
+                let reg = self.read_r8(r8);
+                self.write_r8(b, reg);
+
+                match b {
+                    6 => 8,
+                    _ => 4,
+                }
+            }
+            0x0a => {
+                let bc = self.register.read_word(BC);
+                self.register.a = self.mmu.read_byte(bc);
+                8
+            }
+            0x1a => {
+                let de = self.register.read_word(DE);
+                self.register.a = self.mmu.read_byte(de);
+                8
+            }
+            0xfa => {
+                let nn = self.fetch_word();
+                self.register.a = self.mmu.read_byte(nn);
+                16
+            }
+            0x3e => self.ld_nn_n(opcode),
+            _ => unreachable!("not LD A,n: 0x{:02x}", opcode),
+        }
+    }
+
+    /*
+    fn ldh_a_n(&mut self) -> u32 {
+        let n = self.fetch_byte() as u16;
+        self.mmu.write_byte(0xff00 | n, self.register.a);
+        12
+    }
+     */
 }
