@@ -94,7 +94,10 @@ impl CPU {
             0x78..=0x7f | 0x0a | 0x1a | 0xfa | 0x3e => self.ld_a_n(opcode),
             0xe2 => self.ld_c_a(),
             0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc_n(opcode),
-            //0xe0 => self.ldd_hl_a(),
+            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 | 0x02 | 0x12 | 0xea => {
+                self.ld_n_a(opcode)
+            }
+            0xe0 => self.ldh_n_a(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -244,11 +247,42 @@ impl CPU {
         }
     }
 
-    /*
-    fn ldh_a_n(&mut self) -> u32 {
-        let n = self.fetch_byte() as u16;
-        self.mmu.write_byte(0xff00 | n, self.register.a);
+    fn ld_n_a(&mut self, opcode: u8) -> u32 {
+        match opcode {
+            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 | 0x7f => {
+                let r8 = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8);
+                self.register.a = n;
+
+                match r8 {
+                    6 => 8,
+                    _ => 4,
+                }
+            }
+            0x02 => {
+                let bc = self.register.read_word(BC);
+                let n = self.mmu.read_byte(bc);
+                self.register.a = n;
+                8
+            }
+            0x12 => {
+                let de = self.register.read_word(DE);
+                let n = self.mmu.read_byte(de);
+                self.register.a = n;
+                8
+            }
+            0xea => {
+                let nn = self.fetch_word();
+                self.register.a = self.mmu.read_byte(nn);
+                16
+            }
+            _ => unreachable!("not LD n,A: 0x{:02x}", opcode),
+        }
+    }
+
+    fn ldh_n_a(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self.mmu.write_byte(0xff00 | (n as u16), self.register.a);
         12
     }
-     */
 }

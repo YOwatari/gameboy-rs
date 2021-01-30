@@ -37,8 +37,10 @@ impl MMU {
             }
             0xfe00..=0xfe9f => unimplemented!("read: OAM: {:x}", addr),
             0xfea0..=0xfeff => 0xff, // unused
-            0xff00..=0xff0f | 0xff40..=0xff7f => unimplemented!("read: I/O register: {:x}", addr),
-            0xff10..=0xff3f => self.ppu.read_byte(addr),
+            0xff00..=0xff0f | 0xff4c..=0xff7f => unimplemented!("read: I/O register: {:x}", addr),
+            0xff10..=0xff3f => self.apu.read_byte(addr),
+            0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.read_byte(addr),
+            0xff46 => unimplemented!("read: I/O register: {:x}", addr),
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize],
             0xffff..=0xffff => unimplemented!("read: Interrupt Enable Register: {:x}", addr),
             _ => 0xff,
@@ -60,12 +62,12 @@ impl MMU {
             }
             0xfe00..=0xfe9f => unimplemented!("write: OAM: {:04x} {:02x}", addr, v),
             0xfea0..=0xfeff => (),
-            0xff00..=0xff0f | 0xff40..=0xff7f => {
+            0xff00..=0xff0f | 0xff4c..=0xff7f => {
                 unimplemented!("write: I/O register: {:04x} {:02x}", addr, v)
             }
-            0xff10..=0xff3f => {
-                self.apu.write_byte(addr, v);
-            }
+            0xff10..=0xff3f => self.apu.write_byte(addr, v),
+            0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.write_byte(addr, v),
+            0xff46 => unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
             0xffff..=0xffff => {
                 unimplemented!("write: Interrupt Enable Register: {:04x} {:02x}", addr, v)

@@ -3,6 +3,7 @@ const VRAM_SIZE: usize = 8 * 1024;
 pub struct PPU {
     vram: [u8; VRAM_SIZE],
     mode: Mode,
+    bgp: u8,
 }
 
 #[derive(Eq, PartialEq)]
@@ -18,6 +19,7 @@ impl PPU {
         PPU {
             vram: [0; VRAM_SIZE],
             mode: Mode::HBlank,
+            bgp: 0,
         }
     }
 
@@ -29,6 +31,7 @@ impl PPU {
                 }
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize]
             }
+            0xff47 => self.bgp,
             _ => 0xff,
         }
     }
@@ -41,6 +44,7 @@ impl PPU {
                 }
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize] = v;
             }
+            0xff47 => self.bgp = v,
             _ => unreachable!("write: not support address: 0x{:04x}", addr),
         }
     }
