@@ -146,7 +146,7 @@ impl CPU {
             0x78..=0x7f | 0x0a | 0x1a | 0xfa | 0x3e => self.ld_a_n(opcode),
             0xe2 => self.ld_c_a(),
             0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc_n(opcode),
-            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 | 0x02 | 0x12 | 0xea => {
+            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 /*| 0x7f*/ | 0x02 | 0x12 | 0xea => {
                 self.ld_n_a(opcode)
             }
             0xe0 => self.ldh_n_a(),
@@ -163,6 +163,7 @@ impl CPU {
             0xf0 => self.ldh_a_n(),
             0x90..=0x97 | 0xd6 => self.sub_n(opcode),
             0x80..=0x87 | 0xc6 => self.add_a_n(opcode),
+            0xc3 => self.jp_n(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -245,6 +246,12 @@ impl CPU {
         } else {
             8
         }
+    }
+
+    fn jp_n(&mut self) -> u32 {
+        let nn = self.fetch_word();
+        self.register.pc = nn;
+        12
     }
 
     fn ld_n_nn(&mut self, opcode: u8) -> u32 {
