@@ -5,6 +5,7 @@ use crate::cpu::register::Register;
 use crate::cpu::register::Register16::{AF, BC, DE, HL};
 use crate::mmu::MMU;
 
+use bitflags::_core::hint::unreachable_unchecked;
 use log::info;
 
 #[derive(Debug)]
@@ -73,6 +74,46 @@ impl CPU {
         }
     }
 
+    fn read_rp(&self, idx: u8) -> u16 {
+        match idx {
+            0 => self.register.read_word(BC),
+            1 => self.register.read_word(DE),
+            2 => self.register.read_word(HL),
+            3 => self.register.sp,
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
+    fn write_rp(&mut self, idx: u8, v: u16) {
+        match idx {
+            0 => self.register.write_word(BC, v),
+            1 => self.register.write_word(DE, v),
+            2 => self.register.write_word(HL, v),
+            3 => self.register.sp = v,
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
+    fn read_rp2(&self, idx: u8) -> u16 {
+        match idx {
+            0 => self.register.read_word(BC),
+            1 => self.register.read_word(DE),
+            2 => self.register.read_word(HL),
+            3 => self.register.read_word(AF),
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
+    fn write_rp2(&mut self, idx: u8, v: u16) {
+        match idx {
+            0 => self.register.write_word(BC, v),
+            1 => self.register.write_word(DE, v),
+            2 => self.register.write_word(HL, v),
+            3 => self.register.write_word(AF, v),
+            _ => unreachable!("invalid operand index: {}", idx),
+        }
+    }
+
     fn read_cc(&self, idx: u8) -> bool {
         match idx {
             0 => !self.register.get_flag(Flags::Z),
@@ -81,6 +122,17 @@ impl CPU {
             3 => self.register.get_flag(Flags::C),
             _ => unreachable!("invalid operand index: {}", idx),
         }
+    }
+
+    fn push_stack(&mut self, v: u16) {
+        self.register.sp = self.register.sp.wrapping_sub(2);
+        self.mmu.write_word(self.register.sp, v);
+    }
+
+    fn pop_stack(&mut self) -> u16 {
+        let nn = self.mmu.read_word(self.register.sp);
+        self.register.sp = self.register.sp.wrapping_add(2);
+        nn
     }
 
     fn execute(&mut self, opcode: u8) -> u32 {
@@ -99,6 +151,14 @@ impl CPU {
             }
             0xe0 => self.ldh_n_a(),
             0xcd => self.call_nn(),
+            0xf5 | 0xc5 | 0xd5 | 0xe5 => self.push_nn(opcode),
+            0x17 => self.rla(),
+            0xc1 | 0xd1 | 0xe1 | 0xf1 => self.pop_nn(opcode),
+            0x05 | 0x0d | 0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dec_n(opcode),
+            0x22 => self.ldi_hl_a(),
+            0x03 | 0x13 | 0x23 | 0x33 => self.inc_nn(opcode),
+            0xc9 => self.ret(),
+            0xb8..=0xbf | 0xfe => self.cp_n(opcode),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -106,20 +166,16 @@ impl CPU {
     fn prefix(&mut self) -> u32 {
         let opcode = self.fetch_byte();
         match opcode {
+            0x10..=0x17 => self.rl(opcode),
             0x40..=0x7f => self.bit_b_r(opcode),
             _ => unimplemented!("unknown cb opcode: 0x{:02x}\ncput: {:?}", opcode, self),
         }
     }
 
     fn ld_n_nn(&mut self, opcode: u8) -> u32 {
+        let rp = (opcode & 0b_0011_0000) >> 4;
         let nn = self.fetch_word();
-        match opcode {
-            0x01 => self.register.write_word(BC, nn),
-            0x11 => self.register.write_word(DE, nn),
-            0x21 => self.register.write_word(HL, nn),
-            0x31 => self.register.sp = nn,
-            _ => unreachable!("not LD n,nn: 0x{:02x}", opcode),
-        }
+        self.write_rp(rp, nn);
         12
     }
 
@@ -156,6 +212,13 @@ impl CPU {
         let hl = self.register.read_word(HL);
         self.mmu.write_byte(hl, self.register.a);
         self.register.write_word(HL, hl.wrapping_sub(1));
+        8
+    }
+
+    fn ldi_hl_a(&mut self) -> u32 {
+        let hl = self.register.read_word(HL);
+        self.mmu.write_byte(hl, self.register.a);
+        self.register.write_word(HL, hl.wrapping_add(1));
         8
     }
 
@@ -207,14 +270,10 @@ impl CPU {
                     _ => 4,
                 }
             }
-            0x0a => {
-                let bc = self.register.read_word(BC);
-                self.register.a = self.mmu.read_byte(bc);
-                8
-            }
-            0x1a => {
-                let de = self.register.read_word(DE);
-                self.register.a = self.mmu.read_byte(de);
+            0x0a | 0x1a => {
+                let r8 = (opcode & 0b_0011_0000) >> 4;
+                let nn = self.read_rp2(r8);
+                self.register.a = self.mmu.read_byte(nn);
                 8
             }
             0xfa => {
@@ -248,6 +307,13 @@ impl CPU {
         }
     }
 
+    fn inc_nn(&mut self, opcode: u8) -> u32 {
+        let rp = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.read_rp(rp);
+        self.write_rp(rp, nn.wrapping_add(1));
+        8
+    }
+
     fn ld_n_a(&mut self, opcode: u8) -> u32 {
         match opcode {
             0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 | 0x7f => {
@@ -260,15 +326,10 @@ impl CPU {
                     _ => 4,
                 }
             }
-            0x02 => {
-                let bc = self.register.read_word(BC);
-                let n = self.mmu.read_byte(bc);
-                self.register.a = n;
-                8
-            }
-            0x12 => {
-                let de = self.register.read_word(DE);
-                let n = self.mmu.read_byte(de);
+            0x02 | 0x12 => {
+                let rp2 = (opcode & 0b_0011_0000) >> 4;
+                let nn = self.read_rp2(rp2);
+                let n = self.mmu.read_byte(nn);
                 self.register.a = n;
                 8
             }
@@ -294,14 +355,105 @@ impl CPU {
         12
     }
 
-    fn push_stack(&mut self, v: u16) {
-        self.register.sp = self.register.sp.wrapping_sub(2);
-        self.mmu.write_word(self.register.sp, v);
+    fn push_nn(&mut self, opcode: u8) -> u32 {
+        let rp2 = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.read_rp2(rp2);
+        self.push_stack(nn);
+        16
     }
 
-    fn pop_stack(&mut self) -> u16 {
-        let nn = self.mmu.read_word(self.register.sp);
-        self.register.sp = self.register.sp.wrapping_add(2);
-        nn
+    fn pop_nn(&mut self, opcode: u8) -> u32 {
+        let rp2 = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.pop_stack();
+        self.write_rp2(rp2, nn);
+        12
+    }
+
+    fn rl(&mut self, opcode: u8) -> u32 {
+        let r8 = opcode & 0b_0000_0111;
+        let reg = self.read_r8(r8);
+        let result = reg << 1
+            | (if self.register.get_flag(Flags::C) {
+                1
+            } else {
+                0
+            });
+        self.write_r8(r8, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, reg & (1 << 7) != 0);
+
+        match r8 {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn rla(&mut self) -> u32 {
+        let r8: u8 = 7;
+        let reg = self.read_r8(r8);
+        let result = reg << 1
+            | (if self.register.get_flag(Flags::C) {
+                1
+            } else {
+                0
+            });
+        self.write_r8(7, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, reg & (1 << 7) != 0);
+        4
+    }
+
+    fn dec_n(&mut self, opcode: u8) -> u32 {
+        let r8 = opcode & 0b_0000_0111;
+        let reg = self.read_r8(r8);
+        let result = reg.wrapping_sub(1);
+        self.write_r8(r8, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, true);
+        self.register.set_flag(Flags::H, reg & 0b_0000_1111 == 0);
+
+        match r8 {
+            6 => 12,
+            _ => 4,
+        }
+    }
+
+    fn ret(&mut self) -> u32 {
+        let nn = self.pop_stack();
+        self.register.pc = nn;
+        8
+    }
+
+    fn _cp_n(&mut self, n: u8) {
+        let a = self.register.a;
+        self.register.set_flag(Flags::Z, a == n);
+        self.register.set_flag(Flags::N, true);
+        self.register.set_flag(Flags::H, (a & 0x0f) < (n & 0x0f));
+        self.register.set_flag(Flags::C, a < n);
+    }
+
+    fn cp_n(&mut self, opcode: u8) -> u32 {
+        match opcode {
+            0xb8..=0xbf => {
+                let r8 = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8);
+                self._cp_n(n);
+
+                match r8 {
+                    6 => 8,
+                    _ => 4,
+                }
+            }
+            0xfe => {
+                let n = self.fetch_byte();
+                self._cp_n(n);
+                8
+            }
+            _ => unreachable!("not CP n: 0x{:02x}", opcode),
+        }
     }
 }
