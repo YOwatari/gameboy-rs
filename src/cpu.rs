@@ -159,6 +159,7 @@ impl CPU {
             0x03 | 0x13 | 0x23 | 0x33 => self.inc_nn(opcode),
             0xc9 => self.ret(),
             0xb8..=0xbf | 0xfe => self.cp_n(opcode),
+            0x18 => self.jr_n(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -455,5 +456,11 @@ impl CPU {
             }
             _ => unreachable!("not CP n: 0x{:02x}", opcode),
         }
+    }
+
+    fn jr_n(&mut self) -> u32 {
+        let n = self.fetch_byte() as i8;
+        self.register.pc = self.register.pc.wrapping_add(n as u16);
+        8
     }
 }
