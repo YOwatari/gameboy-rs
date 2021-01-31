@@ -5,9 +5,6 @@ use crate::cpu::register::Register;
 use crate::cpu::register::Register16::{AF, BC, DE, HL};
 use crate::mmu::MMU;
 
-use bitflags::_core::hint::unreachable_unchecked;
-use log::info;
-
 #[derive(Debug)]
 pub struct CPU {
     register: Register,
@@ -23,9 +20,10 @@ impl CPU {
     }
 
     pub fn run(&mut self) -> u32 {
-        info!("address: {:04x}", self.register.pc);
         let opcode = self.fetch_byte();
-        self.execute(opcode)
+        let tick = self.execute(opcode);
+        self.mmu.run(tick);
+        tick
     }
 
     fn fetch_byte(&mut self) -> u8 {
@@ -174,9 +172,9 @@ impl CPU {
     }
 
     fn ld_n_nn(&mut self, opcode: u8) -> u32 {
-        let rp = (opcode & 0b_0011_0000) >> 4;
+        let rp_idx = (opcode & 0b_0011_0000) >> 4;
         let nn = self.fetch_word();
-        self.write_rp(rp, nn);
+        self.write_rp(rp_idx, nn);
         12
     }
 
@@ -191,11 +189,11 @@ impl CPU {
     fn xor_n(&mut self, opcode: u8) -> u32 {
         match opcode {
             0xa8..=0xaf => {
-                let r8 = opcode & 0b_0000_0111;
-                let n = self.read_r8(r8);
+                let r8_idx = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8_idx);
                 self._xor_n(n);
 
-                match r8 {
+                match r8_idx {
                     6 => 8,
                     _ => 4,
                 }
@@ -225,22 +223,22 @@ impl CPU {
 
     fn bit_b_r(&mut self, opcode: u8) -> u32 {
         let b = (opcode & 0b_0011_1000) >> 3;
-        let r8 = opcode & 0b_0000_0111;
-        let reg = self.read_r8(r8);
+        let r8_idx = opcode & 0b_0000_0111;
+        let reg = self.read_r8(r8_idx);
         let result = reg & (1 << b);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, true);
 
-        match r8 {
+        match r8_idx {
             6 => 16,
             _ => 8,
         }
     }
 
     fn jr_cc_n(&mut self, opcode: u8) -> u32 {
-        let b = (opcode & 0b_0011_1000) >> 3;
-        let cc = self.read_cc(b - 4);
+        let cc_idx = (opcode & 0b_0011_1000) >> 3;
+        let cc = self.read_cc(cc_idx - 4);
         let n = self.fetch_byte() as i8;
 
         if cc {
@@ -252,28 +250,27 @@ impl CPU {
     }
 
     fn ld_nn_n(&mut self, opcode: u8) -> u32 {
-        let b = (opcode & 0b_0011_1000) >> 3;
+        let r8_idx = (opcode & 0b_0011_1000) >> 3;
         let n = self.fetch_byte();
-        self.write_r8(b, n);
+        self.write_r8(r8_idx, n);
         8
     }
 
     fn ld_a_n(&mut self, opcode: u8) -> u32 {
         match opcode {
             0x78..=0x7f => {
-                let b = (opcode & 0b_0011_1000) >> 3;
-                let r8 = opcode & 0b_0000_0111;
-                let reg = self.read_r8(r8);
-                self.write_r8(b, reg);
+                let r8_idx = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8_idx);
+                self.register.a = n;
 
-                match b {
+                match r8_idx {
                     6 => 8,
                     _ => 4,
                 }
             }
             0x0a | 0x1a => {
-                let r8 = (opcode & 0b_0011_0000) >> 4;
-                let nn = self.read_rp2(r8);
+                let rp2_idx = (opcode & 0b_0011_0000) >> 4;
+                let nn = self.read_rp2(rp2_idx);
                 self.register.a = self.mmu.read_byte(nn);
                 8
             }
@@ -287,42 +284,14 @@ impl CPU {
         }
     }
 
-    fn ld_c_a(&mut self) -> u32 {
-        let addr = 0xff00 | (self.register.c as u16);
-        self.mmu.write_byte(addr, self.register.a);
-        8
-    }
-
-    fn inc_n(&mut self, opcode: u8) -> u32 {
-        let r8 = opcode & 0b_0000_0111;
-        let n = self.read_r8(r8);
-        let result = n.wrapping_add(1);
-        self.write_r8(r8, result);
-        self.register.set_flag(Flags::Z, result == 0);
-        self.register.set_flag(Flags::N, false);
-        self.register.set_flag(Flags::H, n & 0x0f == 0x0f);
-
-        match r8 {
-            6 => 12,
-            _ => 4,
-        }
-    }
-
-    fn inc_nn(&mut self, opcode: u8) -> u32 {
-        let rp = (opcode & 0b_0011_0000) >> 4;
-        let nn = self.read_rp(rp);
-        self.write_rp(rp, nn.wrapping_add(1));
-        8
-    }
-
     fn ld_n_a(&mut self, opcode: u8) -> u32 {
         match opcode {
             0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 | 0x7f => {
-                let r8 = opcode & 0b_0000_0111;
-                let n = self.read_r8(r8);
+                let r8_idx = (opcode & 0b_0011_1000) >> 3;
+                let n = self.read_r8(r8_idx);
                 self.register.a = n;
 
-                match r8 {
+                match r8_idx {
                     6 => 8,
                     _ => 4,
                 }
@@ -343,6 +312,34 @@ impl CPU {
         }
     }
 
+    fn ld_c_a(&mut self) -> u32 {
+        let addr = 0xff00 | (self.register.c as u16);
+        self.mmu.write_byte(addr, self.register.a);
+        8
+    }
+
+    fn inc_n(&mut self, opcode: u8) -> u32 {
+        let r8_idx = (opcode & 0b_0011_1000) >> 3;
+        let n = self.read_r8(r8_idx);
+        let result = n.wrapping_add(1);
+        self.write_r8(r8_idx, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, n & 0x0f == 0x0f);
+
+        match r8_idx {
+            6 => 12,
+            _ => 4,
+        }
+    }
+
+    fn inc_nn(&mut self, opcode: u8) -> u32 {
+        let rp_idx = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.read_rp(rp_idx);
+        self.write_rp(rp_idx, nn.wrapping_add(1));
+        8
+    }
+
     fn ldh_n_a(&mut self) -> u32 {
         let n = self.fetch_byte();
         self.mmu.write_byte(0xff00 | (n as u16), self.register.a);
@@ -357,44 +354,44 @@ impl CPU {
     }
 
     fn push_nn(&mut self, opcode: u8) -> u32 {
-        let rp2 = (opcode & 0b_0011_0000) >> 4;
-        let nn = self.read_rp2(rp2);
+        let rp2_idx = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.read_rp2(rp2_idx);
         self.push_stack(nn);
         16
     }
 
     fn pop_nn(&mut self, opcode: u8) -> u32 {
-        let rp2 = (opcode & 0b_0011_0000) >> 4;
+        let rp2_idx = (opcode & 0b_0011_0000) >> 4;
         let nn = self.pop_stack();
-        self.write_rp2(rp2, nn);
+        self.write_rp2(rp2_idx, nn);
         12
     }
 
     fn rl(&mut self, opcode: u8) -> u32 {
-        let r8 = opcode & 0b_0000_0111;
-        let reg = self.read_r8(r8);
-        let result = reg << 1
+        let r8_idx = opcode & 0b_0000_0111;
+        let n = self.read_r8(r8_idx);
+        let result = n << 1
             | (if self.register.get_flag(Flags::C) {
                 1
             } else {
                 0
             });
-        self.write_r8(r8, result);
+        self.write_r8(r8_idx, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, reg & (1 << 7) != 0);
+        self.register.set_flag(Flags::C, n & (1 << 7) != 0);
 
-        match r8 {
+        match r8_idx {
             6 => 16,
             _ => 8,
         }
     }
 
     fn rla(&mut self) -> u32 {
-        let r8: u8 = 7;
-        let reg = self.read_r8(r8);
-        let result = reg << 1
+        let r8_idx: u8 = 7;
+        let n = self.read_r8(r8_idx);
+        let result = n << 1
             | (if self.register.get_flag(Flags::C) {
                 1
             } else {
@@ -404,20 +401,20 @@ impl CPU {
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, reg & (1 << 7) != 0);
+        self.register.set_flag(Flags::C, n & (1 << 7) != 0);
         4
     }
 
     fn dec_n(&mut self, opcode: u8) -> u32 {
-        let r8 = opcode & 0b_0000_0111;
-        let reg = self.read_r8(r8);
-        let result = reg.wrapping_sub(1);
-        self.write_r8(r8, result);
+        let r8_idx = (opcode & 0b_0011_1000) >> 3;
+        let n = self.read_r8(r8_idx);
+        let result = n.wrapping_sub(1);
+        self.write_r8(r8_idx, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, true);
-        self.register.set_flag(Flags::H, reg & 0b_0000_1111 == 0);
+        self.register.set_flag(Flags::H, n & 0x0f == 0);
 
-        match r8 {
+        match r8_idx {
             6 => 12,
             _ => 4,
         }
@@ -440,11 +437,11 @@ impl CPU {
     fn cp_n(&mut self, opcode: u8) -> u32 {
         match opcode {
             0xb8..=0xbf => {
-                let r8 = opcode & 0b_0000_0111;
-                let n = self.read_r8(r8);
+                let r8_idx = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8_idx);
                 self._cp_n(n);
 
-                match r8 {
+                match r8_idx {
                     6 => 8,
                     _ => 4,
                 }

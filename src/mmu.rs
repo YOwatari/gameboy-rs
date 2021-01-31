@@ -26,6 +26,10 @@ impl MMU {
         }
     }
 
+    pub fn run(&mut self, tick: u32) {
+        self.ppu.run(tick);
+    }
+
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7fff => self.cartridge.read_byte(addr),
@@ -45,10 +49,6 @@ impl MMU {
             0xffff..=0xffff => unimplemented!("read: Interrupt Enable Register: {:x}", addr),
             _ => 0xff,
         }
-    }
-
-    pub fn read_word(&self, addr: u16) -> u16 {
-        self.read_byte(addr) as u16 | (self.read_byte(addr + 1) as u16) << 8
     }
 
     pub fn write_byte(&mut self, addr: u16, v: u8) {
@@ -76,6 +76,10 @@ impl MMU {
         }
     }
 
+    pub fn read_word(&self, addr: u16) -> u16 {
+        self.read_byte(addr) as u16 | (self.read_byte(addr + 1) as u16) << 8
+    }
+
     pub fn write_word(&mut self, addr: u16, v: u16) {
         self.write_byte(addr, v as u8);
         self.write_byte(addr + 1, (v >> 8) as u8);
@@ -84,6 +88,6 @@ impl MMU {
 
 impl fmt::Debug for MMU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "no display")
+        write!(f, "MMU {{ ppu: {:?} }}", self.ppu)
     }
 }

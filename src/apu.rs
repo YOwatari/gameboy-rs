@@ -18,7 +18,7 @@ pub struct APU {
 }
 
 bitflags!(
-    pub struct SoundOnOff: u8 {
+    struct SoundOnOff: u8 {
         const All      = 0b_1000_0000;
         const Channel4 = 0b_0000_1000;
         const Channel3 = 0b_0000_0100;
