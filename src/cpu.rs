@@ -20,6 +20,7 @@ impl CPU {
     }
 
     pub fn run(&mut self) -> u32 {
+        //info!("address: 0x{:04x}", self.register.pc);
         let opcode = self.fetch_byte();
         let tick = self.execute(opcode);
         self.mmu.run(tick);
@@ -135,6 +136,7 @@ impl CPU {
 
     fn execute(&mut self, opcode: u8) -> u32 {
         match opcode {
+            0x00 => 4,
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_n_nn(opcode),
             0xaf | 0xa8 | 0xa9 | 0xaa | 0xab | 0xac | 0xad | 0xae | 0xee => self.xor_n(opcode),
             0x32 => self.ldd_hl_a(),
@@ -158,6 +160,9 @@ impl CPU {
             0xc9 => self.ret(),
             0xb8..=0xbf | 0xfe => self.cp_n(opcode),
             0x18 => self.jr_n(),
+            0xf0 => self.ldh_a_n(),
+            0x90..=0x97 | 0xd6 => self.sub_n(opcode),
+            0x80..=0x87 | 0xc6 => self.add_a_n(opcode),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
         }
     }
@@ -169,13 +174,6 @@ impl CPU {
             0x40..=0x7f => self.bit_b_r(opcode),
             _ => unimplemented!("unknown cb opcode: 0x{:02x}\ncput: {:?}", opcode, self),
         }
-    }
-
-    fn ld_n_nn(&mut self, opcode: u8) -> u32 {
-        let rp_idx = (opcode & 0b_0011_0000) >> 4;
-        let nn = self.fetch_word();
-        self.write_rp(rp_idx, nn);
-        12
     }
 
     fn _xor_n(&mut self, n: u8) {
@@ -249,6 +247,13 @@ impl CPU {
         }
     }
 
+    fn ld_n_nn(&mut self, opcode: u8) -> u32 {
+        let rp_idx = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.fetch_word();
+        self.write_rp(rp_idx, nn);
+        12
+    }
+
     fn ld_nn_n(&mut self, opcode: u8) -> u32 {
         let r8_idx = (opcode & 0b_0011_1000) >> 3;
         let n = self.fetch_byte();
@@ -318,6 +323,18 @@ impl CPU {
         8
     }
 
+    fn ldh_n_a(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self.mmu.write_byte(0xff00 | (n as u16), self.register.a);
+        12
+    }
+
+    fn ldh_a_n(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self.register.a = self.mmu.read_byte(0xff00 | (n as u16));
+        12
+    }
+
     fn inc_n(&mut self, opcode: u8) -> u32 {
         let r8_idx = (opcode & 0b_0011_1000) >> 3;
         let n = self.read_r8(r8_idx);
@@ -338,12 +355,6 @@ impl CPU {
         let nn = self.read_rp(rp_idx);
         self.write_rp(rp_idx, nn.wrapping_add(1));
         8
-    }
-
-    fn ldh_n_a(&mut self) -> u32 {
-        let n = self.fetch_byte();
-        self.mmu.write_byte(0xff00 | (n as u16), self.register.a);
-        12
     }
 
     fn call_nn(&mut self) -> u32 {
@@ -428,9 +439,10 @@ impl CPU {
 
     fn _cp_n(&mut self, n: u8) {
         let a = self.register.a;
+        let h = (a & 0x0f) < (n & 0x0f);
         self.register.set_flag(Flags::Z, a == n);
         self.register.set_flag(Flags::N, true);
-        self.register.set_flag(Flags::H, (a & 0x0f) < (n & 0x0f));
+        self.register.set_flag(Flags::H, h);
         self.register.set_flag(Flags::C, a < n);
     }
 
@@ -459,5 +471,68 @@ impl CPU {
         let n = self.fetch_byte() as i8;
         self.register.pc = self.register.pc.wrapping_add(n as u16);
         8
+    }
+
+    fn _sub_n(&mut self, n: u8) {
+        let a = self.register.a;
+        let (result, c) = a.overflowing_sub(n);
+        let h = (a & 0x0f) < (n & 0x0f);
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, true);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+    }
+
+    fn sub_n(&mut self, opcode: u8) -> u32 {
+        match opcode {
+            0x90..=0x97 => {
+                let r8_idx = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8_idx);
+                self._sub_n(n);
+
+                match r8_idx {
+                    6 => 8,
+                    _ => 4,
+                }
+            }
+            0xd6 => {
+                let n = self.fetch_byte();
+                self._sub_n(n);
+                8
+            }
+            _ => unreachable!("not SUB n: 0x{:02x}", opcode),
+        }
+    }
+
+    fn _add_a_n(&mut self, n: u8) {
+        let a = self.register.a;
+        let (result, c) = a.overflowing_add(n);
+        let h = (a & 0x0f) < (n & 0x0f);
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+    }
+
+    fn add_a_n(&mut self, opcode: u8) -> u32 {
+        match opcode {
+            0x80..=0x87 => {
+                let r8_idx = opcode & 0b_0000_0111;
+                let n = self.read_r8(r8_idx);
+                self._add_a_n(n);
+                match r8_idx {
+                    6 => 8,
+                    _ => 4,
+                }
+            }
+            0xc6 => {
+                let n = self.fetch_byte();
+                self._add_a_n(n);
+                8
+            }
+            _ => unreachable!("not ADD A,n: 0x{:02x}", opcode),
+        }
     }
 }

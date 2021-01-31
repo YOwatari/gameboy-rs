@@ -12,19 +12,35 @@ pub struct PPU {
     clocks: u32,
     ly: u8,
     stat: Stat,
+    scy: u8,
+    scx: u8,
+    control: Control,
 }
 
 bitflags!(
+    struct Control: u8 {
+        const LCD_ENABLE      = 0b_1000_0000;
+        const WINDOW_TILE_MAP = 0b_0100_0000;
+        const WINDOW_ENABLE   = 0b_0010_0000;
+        const BG_WINDOW_TILE  = 0b_0001_0000;
+        const BG_TILE_MAP     = 0b_0000_1000;
+        const OBJ_SIZE        = 0b_0000_0100;
+        const OBJ_ENABLE      = 0b_0000_0010;
+        const BG_ENABLE       = 0b_0000_0001;
+    }
+);
+
+bitflags!(
     struct Stat: u8 {
-        const LycInterrupt    = 0b_0100_0000;
-        const OAMInterrupt    = 0b_0010_0000;
-        const VBlankInterrupt = 0b_0001_0000;
-        const HBlankInterrupt = 0b_0000_1000;
-        const LycFlag         = 0b_0000_0100;
-        const HBlankMode      = 0b_0000_0000;
-        const VBlankMode      = 0b_0000_0001;
-        const AccessOAMMode   = 0b_0000_0010;
-        const AccessVRAMMode  = 0b_0000_0011;
+        const LYC_INTERRUPT    = 0b_0100_0000;
+        const OAM_INTERRUPT    = 0b_0010_0000;
+        const VBLANK_INTERRUPT = 0b_0001_0000;
+        const HBLANK_INTERRUPT = 0b_0000_1000;
+        const LYC_FLAG         = 0b_0000_0100;
+        const HBLANK_MODE      = 0b_0000_0000;
+        const VBLANK_MODE      = 0b_0000_0001;
+        const ACCESS_OAM_MODE  = 0b_0000_0010;
+        const ACCESS_VRAM_MODE = 0b_0000_0011;
     }
 );
 
@@ -45,10 +61,14 @@ impl PPU {
             clocks: 0,
             ly: 0,
             stat: Stat::empty(),
+            scy: 0,
+            scx: 0,
+            control: Control::empty(),
         }
     }
 
     pub fn run(&mut self, tick: u32) {
+        //info!("ly: {}", self.ly);
         self.clocks += tick;
 
         match self.mode {
@@ -104,6 +124,9 @@ impl PPU {
                 }
                 self.vram[(addr & (VRAM_SIZE - 1) as u16) as usize]
             }
+            0xff40 => self.control.bits,
+            0xff42 => self.scy,
+            0xff43 => self.scx,
             0xff44 => self.ly,
             0xff47 => self.bgp,
             _ => 0xff,
@@ -118,6 +141,23 @@ impl PPU {
                 }
                 self.vram[(addr & (VRAM_SIZE - 1) as u16) as usize] = v;
             }
+            0xff40 => {
+                let val = Control::from_bits_truncate(v);
+                if self.control.contains(Control::LCD_ENABLE) != val.contains(Control::LCD_ENABLE) {
+                    self.ly = 0;
+                    self.clocks = 0;
+                    let mode = if val.contains(Control::LCD_ENABLE) {
+                        Stat::ACCESS_OAM_MODE
+                    } else {
+                        Stat::HBLANK_MODE
+                    };
+                    self.stat.insert(mode);
+                    // interrupt
+                }
+                self.control = val;
+            }
+            0xff42 => self.scy = v,
+            0xff43 => self.scx = v,
             0xff44 => (), // read only
             0xff47 => self.bgp = v,
             _ => unreachable!("write: not support address: 0x{:04x}", addr),
