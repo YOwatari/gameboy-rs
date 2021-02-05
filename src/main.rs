@@ -1,7 +1,9 @@
 extern crate env_logger;
 extern crate log;
+extern crate minifb;
 
 use log::info;
+use minifb::{Key, Scale, Window, WindowOptions};
 use std::fs::File;
 use std::io::Read;
 use std::path;
@@ -14,6 +16,7 @@ mod mmu;
 mod ppu;
 
 use crate::cpu::CPU;
+use crate::ppu::{SCREEN_HEIGHT, SCREEN_PIXELS, SCREEN_WIDTH};
 
 const CPU_CYCLES_PER_FRAME: u32 = 70224;
 
@@ -35,12 +38,33 @@ fn main() {
 
     let mut cpu = CPU::new(bios, rom);
 
-    loop {
+    let mut window = Window::new(
+        "rust-gameboy",
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        WindowOptions {
+            scale: Scale::X2,
+            ..WindowOptions::default()
+        },
+    )
+    .unwrap_or_else(|e| {
+        panic!("{}", e);
+    });
+    window.set_position(200, 200);
+
+    while window.is_open() && !window.is_key_down(Key::Escape) {
         let now = time::Instant::now();
         let mut elapsed_tick: u32 = 0;
 
         while elapsed_tick < CPU_CYCLES_PER_FRAME {
             elapsed_tick += cpu.run() as u32;
+        }
+
+        if cpu.mmu.ppu.is_lcd_on() {
+            let buffer = Vec::from(cpu.mmu.ppu.frame_buffer);
+            window
+                .update_with_buffer(&buffer, SCREEN_WIDTH, SCREEN_HEIGHT)
+                .unwrap();
         }
 
         // elapsed time per frame at 60fps

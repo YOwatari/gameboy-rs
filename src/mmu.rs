@@ -11,7 +11,7 @@ pub struct MMU {
     cartridge: Cartridge,
     wram: [u8; WORKING_RAM_SIZE],
     hram: [u8; HIGH_RAM_SIZE],
-    ppu: PPU,
+    pub ppu: PPU,
     apu: APU,
     bios_disable: bool,
 }
@@ -86,7 +86,7 @@ impl MMU {
             0xff10..=0xff3f => self.apu.write_byte(addr, v),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.write_byte(addr, v),
             0xff46 => unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
-            0xff50 => self.bios_disable = if v > 0 { true } else { false },
+            0xff50 => self.bios_disable = v != 0,
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
             0xffff..=0xffff => {
                 unimplemented!("write: Interrupt Enable Register: {:04x} {:02x}", addr, v)

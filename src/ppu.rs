@@ -2,11 +2,12 @@ use bitflags::bitflags;
 use std::fmt;
 
 const VRAM_SIZE: usize = 8 * 1024;
-const SCREEN_WIDTH: u8 = 160;
-const SCREEN_HEIGHT: u8 = 144;
+pub const SCREEN_WIDTH: usize = 160;
+pub const SCREEN_HEIGHT: usize = 144;
+pub const SCREEN_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 pub struct PPU {
-    vram: [u8; VRAM_SIZE],
+    pub vram: [u8; VRAM_SIZE],
     mode: Mode,
     bgp: u8,
     clocks: u32,
@@ -15,6 +16,9 @@ pub struct PPU {
     scy: u8,
     scx: u8,
     control: Control,
+    wy: u8,
+    wx: u8,
+    pub frame_buffer: [u32; SCREEN_PIXELS],
 }
 
 bitflags!(
@@ -64,11 +68,13 @@ impl PPU {
             scy: 0,
             scx: 0,
             control: Control::empty(),
+            wy: 0,
+            wx: 0,
+            frame_buffer: [0; SCREEN_PIXELS],
         }
     }
 
     pub fn run(&mut self, tick: u32) {
-        //info!("ly: {}", self.ly);
         self.clocks += tick;
 
         match self.mode {
@@ -76,12 +82,12 @@ impl PPU {
                 if self.clocks >= 80 {
                     self.clocks -= 80;
                     self.mode = Mode::AccessVRAM;
-                    // render scanline
                 }
             }
             Mode::AccessVRAM => {
                 if self.clocks >= 172 {
                     self.clocks -= 172;
+                    self.render_line();
                     self.mode = Mode::HBlank;
                     // interrupt
                 }
@@ -91,7 +97,7 @@ impl PPU {
                     self.clocks -= 204;
                     self.ly = self.ly.wrapping_add(1);
 
-                    if self.ly >= SCREEN_HEIGHT {
+                    if self.ly >= SCREEN_HEIGHT as u8 {
                         self.mode = Mode::VBlank;
                     // interrupt
                     } else {
@@ -100,12 +106,12 @@ impl PPU {
                     // interrupt
                 }
             }
-            _ => {
+            Mode::VBlank => {
                 if self.clocks >= 456 {
                     self.clocks -= 456;
                     self.ly = self.ly.wrapping_add(1);
 
-                    if self.ly >= SCREEN_HEIGHT + 10 {
+                    if self.ly >= SCREEN_HEIGHT as u8 + 10 {
                         self.mode = Mode::AccessOAM;
                         self.ly = 0;
                         // interrupt
@@ -119,16 +125,18 @@ impl PPU {
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x8000..=0x9fff => {
-                if self.mode == Mode::AccessVRAM {
+                /*if self.mode == Mode::AccessVRAM {
                     return 0xff;
-                }
-                self.vram[(addr & (VRAM_SIZE - 1) as u16) as usize]
+                }*/
+                self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize]
             }
             0xff40 => self.control.bits,
             0xff42 => self.scy,
             0xff43 => self.scx,
             0xff44 => self.ly,
             0xff47 => self.bgp,
+            0xff4a => self.wy,
+            0xff4b => self.wx,
             _ => 0xff,
         }
     }
@@ -136,10 +144,10 @@ impl PPU {
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
             0x8000..=0x9fff => {
-                if self.mode == Mode::AccessVRAM {
+                /*if self.mode == Mode::AccessVRAM {
                     return;
-                }
-                self.vram[(addr & (VRAM_SIZE - 1) as u16) as usize] = v;
+                }*/
+                self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize] = v;
             }
             0xff40 => {
                 let val = Control::from_bits_truncate(v);
@@ -160,7 +168,63 @@ impl PPU {
             0xff43 => self.scx = v,
             0xff44 => (), // read only
             0xff47 => self.bgp = v,
+            0xff4a => self.wy = v,
+            0xff4b => self.wx = v,
             _ => unreachable!("write: not support address: 0x{:04x}", addr),
+        }
+    }
+
+    pub fn is_lcd_on(&self) -> bool {
+        self.control.contains(Control::LCD_ENABLE)
+    }
+
+    fn render_line(&mut self) {
+        let start = SCREEN_WIDTH * (self.ly as usize);
+        let end = start + SCREEN_WIDTH;
+        let pixels = &mut self.frame_buffer[start..end];
+
+        if self.control.contains(Control::BG_ENABLE) {
+            let tile_map_addr_base = if self.control.contains(Control::BG_TILE_MAP) {
+                0x1c00 // 0x1c00-0x1fff 32x32 bytes
+            } else {
+                0x1800 // 0x1800-0x1bff 32x32 bytes
+            };
+
+            let y = self.ly.wrapping_add(self.scy);
+            let row = (y / 8) as usize;
+
+            for i in 0..SCREEN_WIDTH as u8 {
+                let x = i.wrapping_add(self.scx);
+                let col = (x / 8) as usize;
+
+                let tile_number = self.vram[((row * 32 + col) | tile_map_addr_base) & 0x1fff];
+                let tile_addr = if self.control.contains(Control::BG_WINDOW_TILE) {
+                    // block0: 0x0000-0x07ff block1: 0x0800-0x0fff
+                    (((tile_number as i8 as i16) << 4) as u16 & 0x0fff) as usize
+                } else {
+                    // block2: 0x1000-0x17ff block1: 0x0800-0x0fff
+                    0x1000_u16.wrapping_add(((tile_number as i8 as i16) << 4) as u16) as usize
+                };
+
+                let line = ((y % 8) * 2) as usize;
+                let data0 = self.vram[(tile_addr | line) & 0x1fff];
+                let data1 = self.vram[(tile_addr | (line + 1)) & 0x1fff];
+
+                let color_mask = (0b_0111 - (x & 0b_0111)) as usize;
+                let color_num = (((data0 >> color_mask) & 1) << 1) | ((data1 >> color_mask) & 1);
+                let color = match (self.bgp >> (color_num << 1)) & 0b_0011 {
+                    0 => 0xffffff, // while
+                    1 => 0xaaaaaa, // light gray
+                    2 => 0x555555, // dark gray
+                    _ => 0x000000, // black
+                };
+
+                pixels[i as usize] = color;
+            }
+        }
+
+        if self.control.contains(Control::OBJ_ENABLE) {
+            // TODO
         }
     }
 }
