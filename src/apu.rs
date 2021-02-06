@@ -1,128 +1,95 @@
 use bitflags::bitflags;
+use std::fmt;
 
-const CHANNEL_MAX_LENGTH: usize = 64;
-const CHANNEL3_MAX_LENGTH: usize = 256;
+mod noise;
+mod pulse;
+mod wave;
+
+use noise::Noise;
+use pulse::Pulse;
+use wave::Wave;
 
 pub struct APU {
+    channel1: Pulse,
+    channel2: Pulse,
+    channel3: Wave,
+    channel4: Noise,
+    left_volume: MasterVolume, // so2
+    left_output: SelectChannels,
+    right_volume: MasterVolume, // so1
+    right_output: SelectChannels,
     enable: bool,
-    channel1_enable: bool,
-    channel1_duty: u8,
-    channel1_new_length: u8,
-    channel1_init_volume: u8,
-    channel1_envelope_direction: bool,
-    channel1_envelope_sweep: u8,
-    channel1_frequency: u16,
-    channel1_length: u8,
-    channel1_length_enable: bool,
-    channel2_enable: bool,
-    channel2_duty: u8,
-    channel2_new_length: u8,
-    channel2_frequency: u16,
-    channel2_length: u8,
-    channel2_length_enable: bool,
-    channel3_enable: bool,
-    channel3_length: u8,
-    channel4_enable: bool,
-    channel4_length: u8,
-    so1_terminal_channels: Channels,
-    so2_terminal_channels: Channels,
-    so1_vin: bool,
-    so2_vin: bool,
-    so1_volume: u8,
-    so2_volume: u8,
+}
+
+struct MasterVolume {
+    vin: bool,
+    level: u8,
+}
+
+impl MasterVolume {
+    pub fn new() -> MasterVolume {
+        MasterVolume {
+            vin: false,
+            level: 0,
+        }
+    }
 }
 
 bitflags!(
-    struct Channels: u8 {
-        const CHANNEL1 = 1 << 0;
-        const CHANNEL2 = 1 << 1;
-        const CHANNEL3 = 1 << 2;
-        const CHANNEL4 = 1 << 3;
+    struct SelectChannels: u8 {
+        const CHANNEL1 = 0b_0001;
+        const CHANNEL2 = 0b_0010;
+        const CHANNEL3 = 0b_0100;
+        const CHANNEL4 = 0b_1000;
     }
 );
 
 impl APU {
     pub fn new() -> APU {
         APU {
+            channel1: Pulse::new(),
+            channel2: Pulse::new(),
+            channel3: Wave::new(),
+            channel4: Noise::new(),
+            left_volume: MasterVolume::new(),
+            left_output: SelectChannels::empty(),
+            right_volume: MasterVolume::new(),
+            right_output: SelectChannels::empty(),
             enable: false,
-            channel1_enable: false,
-            channel1_duty: 0,
-            channel1_new_length: 0,
-            channel1_init_volume: 0,
-            channel1_envelope_direction: false,
-            channel1_envelope_sweep: 0,
-            channel1_frequency: 0,
-            channel1_length: 0,
-            channel1_length_enable: false,
-            channel2_enable: false,
-            channel2_duty: 0,
-            channel2_new_length: 0,
-            channel2_frequency: 0,
-            channel2_length: 0,
-            channel2_length_enable: false,
-            channel3_enable: false,
-            channel3_length: 0,
-            channel4_enable: false,
-            channel4_length: 0,
-            so1_terminal_channels: Channels::empty(),
-            so2_terminal_channels: Channels::empty(),
-            so1_vin: false,
-            so2_vin: false,
-            so1_volume: 0,
-            so2_volume: 0,
         }
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xff11 => {
-                (self.channel1_duty << 6)
-                    | (((CHANNEL_MAX_LENGTH - 1) as u8 - self.channel1_new_length) & 0b_0011_1111)
-            }
-            0xff12 => {
-                (self.channel1_init_volume << 4)
-                    | (if self.channel1_envelope_direction {
-                        0b_0000_1000
-                    } else {
-                        0
-                    })
-                    | (self.channel1_envelope_sweep & 0b_0000_0111)
-            }
+            0xff10 => self.channel1.read_nr_x0(),
+            0xff11 => self.channel1.read_nr_x1(),
+            0xff12 => self.channel1.read_nr_x2(),
             0xff13 => 0xff, // write only
-            0xff14 => {
-                if self.channel1_length_enable {
-                    1 << 6
-                } else {
-                    0
-                }
-            }
-            0xff16 => {
-                (self.channel2_duty << 6)
-                    | (((CHANNEL_MAX_LENGTH - 1) as u8 - self.channel2_new_length) & 0b_0011_1111)
-            }
+            0xff14 => self.channel1.read_nr_x4(),
+
+            0xff16 => self.channel2.read_nr_x1(),
+            0xff17 => self.channel2.read_nr_x2(),
             0xff18 => 0xff, // write only
-            0xff19 => {
-                if self.channel2_length_enable {
-                    1 << 6
-                } else {
-                    0
-                }
-            }
-            0xff1b => (CHANNEL3_MAX_LENGTH - 1) as u8 - self.channel3_length,
-            0xff20 => ((CHANNEL_MAX_LENGTH - 1) as u8 - self.channel4_length) & 0b_0011_1111,
+            0xff19 => self.channel2.read_nr_x4(),
+
+            0xff1a => self.channel3.read_nr_x0(),
+            0xff1b => self.channel3.read_nr_x1(),
+
+            0xff20 => self.channel4.read_nr_x1(),
+
             0xff24 => {
-                (if self.so2_vin { 1 << 7 } else { 0 })
-                    | self.so2_volume << 4
-                    | (if self.so1_vin { 1 << 3 } else { 0 })
-                    | self.so1_volume
+                (if self.left_volume.vin { 0x80 } else { 0x00 })
+                    | self.left_volume.level << 4
+                    | if self.right_volume.vin { 0x08 } else { 0x00 }
+                    | self.right_volume.level
             }
-            0xff25 => self.so1_terminal_channels.bits | (self.so2_terminal_channels.bits << 4),
+            0xff25 => (self.left_output.bits << 4) | self.right_output.bits,
             0xff26 => {
-                (if self.enable { 1 << 7 } else { 0 })
-                    | (if self.channel4_enable { 1 << 3 } else { 0 })
-                    | (if self.channel3_enable { 1 << 2 } else { 0 })
-                    | (if self.channel2_enable { 1 << 1 } else { 0 })
-                    | (if self.channel1_enable { 1 << 0 } else { 0 })
+                (if self.enable { 0x80 } else { 0 })
+                    | (if self.channel4.status { 0b_1000 } else { 0 })
+                    | (if self.channel3.status { 0b_0100 } else { 0 })
+                    | (if self.channel2.status { 0b_0010 } else { 0 })
+                    | (if self.channel1.status { 0b_0001 } else { 0 })
             }
             _ => unimplemented!("read: Sound I/O {:04x}", addr),
         }
@@ -130,79 +97,54 @@ impl APU {
 
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
-            0xff11 => {
-                self.channel1_duty = v >> 6;
-                self.channel1_new_length = (CHANNEL_MAX_LENGTH - 1) as u8 - (v & 0b_0011_1111);
-            }
-            0xff12 => {
-                self.channel1_init_volume = v >> 4;
-                self.channel1_envelope_direction = (v & 0b_0000_1000) == 0b_0000_1000;
-                self.channel1_envelope_sweep = v & 0b_0000_0111;
-            }
-            0xff13 => {
-                self.channel1_frequency = (self.channel1_frequency & 0b_0111_0000_0000) | v as u16;
-                self.channel1_length = self.channel1_new_length;
-                // period
-            }
-            0xff14 => {
-                self.channel1_frequency = (self.channel1_frequency & 0b_0000_1111_1111)
-                    | (((v & 0b_0000_0111) as u16) << 8);
-                // period
-                self.channel1_length_enable = (v & 0b_0100_0000) != 0;
+            0xff10 => self.channel1.write_nr_x0(v),
+            0xff11 => self.channel1.write_nr_x1(v),
+            0xff12 => self.channel1.write_nr_x2(v),
+            0xff13 => self.channel1.write_nr_x3(v),
+            0xff14 => self.channel1.write_nr_x4(v),
 
-                if v & 0b_1000_0000 != 0 {
-                    self.enable = true;
-                    self.channel1_length = self.channel1_new_length;
-                    // sweep
-                }
-            }
-            0xff16 => {
-                self.channel2_duty = v >> 6;
-                self.channel2_new_length = (CHANNEL_MAX_LENGTH - 1) as u8 - (v & 0b_0011_1111);
-            }
-            0xff18 => {
-                self.channel2_frequency = (self.channel2_frequency & 0b_0111_0000_0000) | v as u16;
-            }
-            0xff19 => {
-                self.channel2_frequency = (self.channel2_frequency & 0b_0000_1111_1111)
-                    | (((v & 0b_0000_0111) as u16) << 8);
-                // period
-                self.channel2_length_enable = (v & 0b_0100_0000) != 0;
+            0xff16 => self.channel2.write_nr_x1(v),
+            0xff17 => self.channel2.write_nr_x2(v),
+            0xff18 => self.channel2.write_nr_x3(v),
+            0xff19 => self.channel2.write_nr_x4(v),
 
-                if v & 0b_1000_0000 != 0 {
-                    self.enable = true;
-                    self.channel2_length = self.channel2_new_length;
-                    // sweep
-                }
-            }
-            0xff1b => self.channel3_length = (CHANNEL3_MAX_LENGTH - 1) as u8 - v,
-            0xff20 => self.channel4_length = (CHANNEL_MAX_LENGTH - 1) as u8 - (v & 0b_0011_1111),
+            0xff1a => self.channel3.write_nr_x0(v),
+            0xff1b => self.channel3.write_nr_x1(v),
+
+            0xff20 => self.channel4.write_nr_x1(v),
+
             0xff24 => {
-                if self.enable {
-                    self.so1_volume = v & 0b_0000_0111;
-                    self.so1_vin = v & 0b_0000_1000 != 0;
-                    self.so2_volume = (v & 0b_0111_0000) >> 4;
-                    self.so2_vin = v & 0b_1000_0000 != 0;
-                }
+                self.left_volume.vin = v & 0x80 != 0;
+                self.left_volume.level = (v & 0x70) >> 4;
+                self.right_volume.vin = v & 0x08 != 0;
+                self.right_volume.level = v & 0x07;
             }
             0xff25 => {
-                if self.enable {
-                    self.so1_terminal_channels = Channels::from_bits_truncate(v);
-                    self.so2_terminal_channels = Channels::from_bits_truncate(v >> 4);
-                }
+                self.left_output = SelectChannels::from_bits_truncate(v >> 4);
+                self.right_output = SelectChannels::from_bits_truncate(v);
             }
             0xff26 => {
-                self.enable = v & (1 << 7) != 0;
+                self.enable = v & 0x80 != 0;
                 if !self.enable {
-                    self.channel1_enable = false;
-                    self.channel2_enable = false;
-                    self.channel3_enable = false;
-                    self.channel4_enable = false;
-                    self.so1_terminal_channels = Channels::empty();
-                    self.so2_terminal_channels = Channels::empty();
+                    self.channel4.status = v & 0b_1000 != 0;
+                    self.channel3.status = v & 0b_0100 != 0;
+                    self.channel2.status = v & 0b_0010 != 0;
+                    self.channel1.status = v & 0b_0001 != 0;
+                    self.right_output = SelectChannels::empty();
+                    self.left_output = SelectChannels::empty();
                 }
             }
             _ => unimplemented!("write: Sound I/O {:04x} {:02x}", addr, v),
         }
+    }
+}
+
+impl fmt::Debug for APU {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "APU {{ nr1: {:?}, nr2: {:?}, nr3: {:?}, nr4: {:?} }}",
+            self.channel1, self.channel2, self.channel3, self.channel4,
+        )
     }
 }

@@ -216,7 +216,8 @@ impl PPU {
                     0 => 0xffffff, // while
                     1 => 0xaaaaaa, // light gray
                     2 => 0x555555, // dark gray
-                    _ => 0x000000, // black
+                    3 => 0x000000, // black
+                    _ => 0xffffff,
                 };
 
                 pixels[i as usize] = color;
@@ -231,6 +232,13 @@ impl PPU {
 
 impl fmt::Debug for PPU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PPU: {{ bgp: 0b{:08b} }}", self.bgp)
+        write!(
+            f,
+            "PPU: {{ \
+lcdc: {:02x}, scy: {:02x}, scx: {:02x}, \
+bgp: {:02x}, \
+wy: {:02x}, wx: {:02x} }}",
+            self.control.bits, self.scy, self.scx, self.bgp, self.wy, self.wx,
+        )
     }
 }
