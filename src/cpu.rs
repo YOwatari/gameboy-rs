@@ -20,6 +20,14 @@ impl CPU {
     }
 
     pub fn run(&mut self) -> u32 {
+        if self.register.pc == 0x100 {
+            panic!("bootstrap done. cpu: {:?}", self)
+            /*
+            thread 'main' panicked at 'bootstrap done. cpu: CPU { register: Register { a: 0x01, f: 0xb0, b: 0x00, c: 0x13, d: 0x00,
+            e: 0xd8, h: 0x01, l: 0x4d, sp: 0xfffe, pc: 0x0100, Z: true N: false, H: true, C: true }, mmu: MMU { ppu: PPU: { bgp: 0b1
+            1111100 } } }', src/cpu.rs:30:13
+             */
+        }
         let opcode = self.fetch_byte();
         let tick = self.execute(opcode);
         self.mmu.run(tick);

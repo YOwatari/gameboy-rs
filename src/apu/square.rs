@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub struct Pulse {
+pub struct Square {
     // NR13-14/NR23-24
     pub status: bool,
     use_length: bool,
@@ -21,9 +21,9 @@ pub struct Pulse {
     sweep_shift: u8,
 }
 
-impl Pulse {
-    pub fn new() -> Pulse {
-        Pulse {
+impl Square {
+    pub fn new() -> Square {
+        Square {
             status: false,
             use_length: false,
             frequency: 0,
@@ -82,11 +82,11 @@ impl Pulse {
     }
 }
 
-impl fmt::Debug for Pulse {
+impl fmt::Debug for Square {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Pulse {{ 0: {:02x}, 1: {:02x}, 2: {:02x}, 4: {:02x} }}",
+            "Square {{ 0: {:02x}, 1: {:02x}, 2: {:02x}, 4: {:02x} }}",
             (self.sweep_time << 4) | if self.sweep_increase { 0 } else { 0x08 } | self.sweep_shift,
             (self.wave_duty << 6) | 0x3f,
             (self.volume << 4) | if self.increase { 0x08 } else { 0 } | self.length,

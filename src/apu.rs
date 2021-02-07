@@ -2,16 +2,16 @@ use bitflags::bitflags;
 use std::fmt;
 
 mod noise;
-mod pulse;
+mod square;
 mod wave;
 
 use noise::Noise;
-use pulse::Pulse;
+use square::Square;
 use wave::Wave;
 
 pub struct APU {
-    channel1: Pulse,
-    channel2: Pulse,
+    channel1: Square,
+    channel2: Square,
     channel3: Wave,
     channel4: Noise,
     left_volume: MasterVolume, // so2
@@ -47,8 +47,8 @@ bitflags!(
 impl APU {
     pub fn new() -> APU {
         APU {
-            channel1: Pulse::new(),
-            channel2: Pulse::new(),
+            channel1: Square::new(),
+            channel2: Square::new(),
             channel3: Wave::new(),
             channel4: Noise::new(),
             left_volume: MasterVolume::new(),

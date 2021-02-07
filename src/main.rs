@@ -1,3 +1,4 @@
+extern crate cpal;
 extern crate env_logger;
 extern crate log;
 extern crate minifb;
@@ -10,13 +11,14 @@ use std::path;
 use std::{env, thread, time};
 
 mod apu;
+mod audio;
 mod cartridge;
 mod cpu;
 mod mmu;
 mod ppu;
 
 use crate::cpu::CPU;
-use crate::ppu::{SCREEN_HEIGHT, SCREEN_PIXELS, SCREEN_WIDTH};
+use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 const CPU_CYCLES_PER_FRAME: u32 = 70224;
 
@@ -37,6 +39,11 @@ fn main() {
     let rom = open_rom_file(&args[2]);
 
     let mut cpu = CPU::new(bios, rom);
+
+    // TODO: headless mode
+
+    audio::beep();
+    panic!("STOP");
 
     let mut window = Window::new(
         "rust-gameboy",
