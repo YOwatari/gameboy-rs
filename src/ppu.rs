@@ -2,14 +2,18 @@ use bitflags::bitflags;
 use std::fmt;
 
 const VRAM_SIZE: usize = 8 * 1024;
+const OAM_SIZE: usize = 160;
 pub const SCREEN_WIDTH: usize = 160;
 pub const SCREEN_HEIGHT: usize = 144;
 pub const SCREEN_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 pub struct PPU {
     pub vram: [u8; VRAM_SIZE],
+    oam: [u8; OAM_SIZE],
     mode: Mode,
     bgp: u8,
+    obp0: u8,
+    obp1: u8,
     clocks: u32,
     ly: u8,
     stat: Stat,
@@ -60,8 +64,11 @@ impl PPU {
     pub fn new() -> PPU {
         PPU {
             vram: [0; VRAM_SIZE],
+            oam: [0; OAM_SIZE],
             mode: Mode::HBlank,
             bgp: 0,
+            obp0: 0,
+            obp1: 0,
             clocks: 0,
             ly: 0,
             stat: Stat::empty(),
@@ -130,11 +137,20 @@ impl PPU {
                 }*/
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize]
             }
+            0xfe00..=0xfe9f => {
+                /*if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
+                    return 0xff;
+                }*/
+                self.oam[(addr & (OAM_SIZE as u16 - 1)) as usize]
+            }
             0xff40 => self.control.bits,
+            0xff41 => self.stat.bits,
             0xff42 => self.scy,
             0xff43 => self.scx,
             0xff44 => self.ly,
             0xff47 => self.bgp,
+            0xff48 => self.obp0,
+            0xff49 => self.obp1,
             0xff4a => self.wy,
             0xff4b => self.wx,
             _ => 0xff,
@@ -148,6 +164,12 @@ impl PPU {
                     return;
                 }*/
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize] = v;
+            }
+            0xfe00..=0xfe9f => {
+                /*if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
+                    return;
+                }*/
+                self.oam[(addr & (OAM_SIZE as u16 - 1)) as usize] = v;
             }
             0xff40 => {
                 let val = Control::from_bits_truncate(v);
@@ -164,13 +186,16 @@ impl PPU {
                 }
                 self.control = val;
             }
+            0xff41 => self.stat = Stat::from_bits_truncate(v & 0b_1111_1000),
             0xff42 => self.scy = v,
             0xff43 => self.scx = v,
             0xff44 => (), // read only
             0xff47 => self.bgp = v,
+            0xff48 => self.obp0 = v,
+            0xff49 => self.obp1 = v,
             0xff4a => self.wy = v,
             0xff4b => self.wx = v,
-            _ => unreachable!("write: not support address: 0x{:04x}", addr),
+            _ => unreachable!("write: not support address: {:04x} {:02x}", addr, v),
         }
     }
 

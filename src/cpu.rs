@@ -9,6 +9,7 @@ use crate::mmu::MMU;
 pub struct CPU {
     register: Register,
     pub mmu: MMU,
+    ime: bool,
 }
 
 impl CPU {
@@ -16,18 +17,11 @@ impl CPU {
         CPU {
             register: Register::new(),
             mmu: MMU::new(bios, rom),
+            ime: false,
         }
     }
 
     pub fn run(&mut self) -> u32 {
-        if self.register.pc == 0x100 {
-            panic!("bootstrap done. cpu: {:?}", self)
-            /*
-            thread 'main' panicked at 'bootstrap done. cpu: CPU { register: Register { a: 0x01, f: 0xb0, b: 0x00, c: 0x13, d: 0x00,
-            e: 0xd8, h: 0x01, l: 0x4d, sp: 0xfffe, pc: 0x0100, Z: true N: false, H: true, C: true }, mmu: MMU { ppu: PPU: { bgp: 0b1
-            1111100 } } }', src/cpu.rs:30:13
-             */
-        }
         let opcode = self.fetch_byte();
         let tick = self.execute(opcode);
         self.mmu.run(tick);
@@ -170,6 +164,8 @@ impl CPU {
             0xc6 => self.add_a_n(),
             0x90..=0x97 => self.sub_r(opcode),
             0xd6 => self.sub_n(),
+            0xb0..=0xb7 => self.or_r(opcode),
+            0xf6 => self.or_n(),
             0xa8..=0xaf => self.xor_r(opcode),
             0xee => self.xor_n(),
             0xb8..=0xbf => self.cp_r(opcode),
@@ -177,6 +173,7 @@ impl CPU {
             0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc_r(opcode),
             0x05 | 0x0d | 0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dec_r(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => self.inc_rp(opcode),
+            0x0b | 0x1b | 0x2b | 0x3b => self.dec_rp(opcode),
 
             // rotates & shifts
             0x17 => self.rla(),
@@ -191,6 +188,10 @@ impl CPU {
 
             // returns
             0xc9 => self.ret(),
+
+            // miscellaneous
+            0xf3 => self.di(),
+            0xfb => self.ei(),
 
             0xcb => self.prefix(),
             _ => unimplemented!("unknown opcode: 0x{:02x}\ncpu: {:?}", opcode, self),
@@ -390,6 +391,31 @@ impl CPU {
         8
     }
 
+    fn _or(&mut self, n: u8) {
+        let result = self.register.a | n;
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, false);
+    }
+
+    fn or_r(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        self._or(n);
+        match z {
+            6 => 8,
+            _ => 4,
+        }
+    }
+
+    fn or_n(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self._or(n);
+        8
+    }
+
     fn _xor(&mut self, n: u8) {
         let result = self.register.a ^ n;
         self.register.a = result;
@@ -475,6 +501,13 @@ impl CPU {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp(p);
         self.write_rp(p, nn.wrapping_add(1));
+        8
+    }
+
+    fn dec_rp(&mut self, opcode: u8) -> u32 {
+        let p = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.read_rp(p);
+        self.write_rp(p, nn.wrapping_sub(1));
         8
     }
 
@@ -567,5 +600,15 @@ impl CPU {
         let nn = self.pop_stack();
         self.register.pc = nn;
         16
+    }
+
+    fn di(&mut self) -> u32 {
+        self.ime = false;
+        4
+    }
+
+    fn ei(&mut self) -> u32 {
+        self.ime = true;
+        4
     }
 }

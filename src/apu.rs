@@ -76,6 +76,9 @@ impl APU {
             0xff1b => self.channel3.read_nr_x1(),
 
             0xff20 => self.channel4.read_nr_x1(),
+            0xff21 => self.channel4.read_nr_x2(),
+            0xff22 => self.channel4.read_nr_x3(),
+            0xff23 => self.channel4.read_nr_x4(),
 
             0xff24 => {
                 (if self.left_volume.vin { 0x80 } else { 0x00 })
@@ -112,6 +115,9 @@ impl APU {
             0xff1b => self.channel3.write_nr_x1(v),
 
             0xff20 => self.channel4.write_nr_x1(v),
+            0xff21 => self.channel4.write_nr_x2(v),
+            0xff22 => self.channel4.write_nr_x3(v),
+            0xff23 => self.channel4.write_nr_x4(v),
 
             0xff24 => {
                 self.left_volume.vin = v & 0x80 != 0;

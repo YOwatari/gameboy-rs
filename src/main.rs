@@ -14,6 +14,7 @@ mod cartridge;
 mod cpu;
 mod mmu;
 mod ppu;
+mod serial;
 
 use crate::cpu::CPU;
 use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
