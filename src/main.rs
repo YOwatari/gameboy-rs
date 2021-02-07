@@ -1,4 +1,3 @@
-extern crate cpal;
 extern crate env_logger;
 extern crate log;
 extern crate minifb;
@@ -11,7 +10,6 @@ use std::path;
 use std::{env, thread, time};
 
 mod apu;
-mod audio;
 mod cartridge;
 mod cpu;
 mod mmu;
@@ -41,10 +39,6 @@ fn main() {
     let mut cpu = CPU::new(bios, rom);
 
     // TODO: headless mode
-
-    audio::beep();
-    panic!("STOP");
-
     let mut window = Window::new(
         "rust-gameboy",
         SCREEN_WIDTH,
