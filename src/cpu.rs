@@ -137,8 +137,6 @@ impl CPU {
 
     fn execute(&mut self, opcode: u8) -> u32 {
         match opcode {
-            0x00 => 4, // nop
-
             // loads
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_n_nn(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.ld_nn_n(opcode),
@@ -162,6 +160,8 @@ impl CPU {
             // arithmetic
             0x80..=0x87 => self.add_a_r(opcode),
             0xc6 => self.add_a_n(),
+            0xa0..=0xa7 => self.and_r(opcode),
+            0xe6 => self.and_n(),
             0x90..=0x97 => self.sub_r(opcode),
             0xd6 => self.sub_n(),
             0xb0..=0xb7 => self.or_r(opcode),
@@ -190,6 +190,9 @@ impl CPU {
             0xc9 => self.ret(),
 
             // miscellaneous
+            0x2f => self.cpl(),
+            0x00 => 4, // nop
+            0x37 => self.scf(),
             0xf3 => self.di(),
             0xfb => self.ei(),
 
@@ -203,6 +206,8 @@ impl CPU {
         match opcode {
             // rotates & shifts
             0x10..=0x17 => self.rl_n(opcode),
+            // miscellaneous
+            0x30..=0x37 => self.swap_r(opcode),
             // bit
             0x40..=0x7f => self.bit_b_r(opcode),
             _ => unimplemented!("unknown cb opcode: 0x{:02x}\ncput: {:?}", opcode, self),
@@ -340,12 +345,12 @@ impl CPU {
 
     fn _add(&mut self, n: u8) {
         let a = self.register.a;
+        let h = (a & 0x0f) + (n & 0x0f) > 0x0f;
         let (result, c) = a.overflowing_add(n);
         self.register.a = result;
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
-        self.register
-            .set_flag(Flags::H, (a & 0x0f) + (n & 0x0f) > 0x0f);
+        self.register.set_flag(Flags::H, h);
         self.register.set_flag(Flags::C, c);
     }
 
@@ -362,6 +367,31 @@ impl CPU {
     fn add_a_n(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._add(n);
+        8
+    }
+
+    fn _and(&mut self, n: u8) {
+        let result = self.register.a & n;
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, true);
+        self.register.set_flag(Flags::C, false);
+    }
+
+    fn and_r(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        self._and(n);
+        match z {
+            6 => 8,
+            _ => 4,
+        }
+    }
+
+    fn and_n(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self._and(n);
         8
     }
 
@@ -600,6 +630,34 @@ impl CPU {
         let nn = self.pop_stack();
         self.register.pc = nn;
         16
+    }
+
+    fn swap_r(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_00111;
+        let n = self.read_r(z);
+        let result = ((n & 0x0f) << 4) | ((n & 0xf0) >> 4);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, false);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn cpl(&mut self) -> u32 {
+        self.register.a != self.register.a;
+        self.register.set_flag(Flags::N, true);
+        self.register.set_flag(Flags::H, true);
+        4
+    }
+
+    fn scf(&mut self) -> u32 {
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, true);
+        4
     }
 
     fn di(&mut self) -> u32 {
