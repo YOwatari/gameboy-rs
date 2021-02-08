@@ -3,8 +3,10 @@ use std::fmt;
 
 use crate::apu::APU;
 use crate::cartridge::Cartridge;
+use crate::joypad::JoyPad;
 use crate::ppu::PPU;
 use crate::serial::Serial;
+use crate::timer::Timer;
 
 const WORKING_RAM_SIZE: usize = 8 * 1024;
 const HIGH_RAM_SIZE: usize = 128;
@@ -19,6 +21,8 @@ pub struct MMU {
     interrupt_enable: IE,
     interrupt_flag: IF,
     serial: Serial,
+    timer: Timer,
+    joypad: JoyPad,
 }
 
 bitflags!(
@@ -53,6 +57,8 @@ impl MMU {
             interrupt_enable: IE::empty(),
             interrupt_flag: IF::empty(),
             serial: Serial::new(),
+            timer: Timer::new(),
+            joypad: JoyPad::new(),
         }
     }
 
@@ -78,9 +84,11 @@ impl MMU {
             }
             0xfe00..=0xfe9f => self.ppu.read_byte(addr),
             0xfea0..=0xfeff => 0xff, // unused
+            0xff00 => self.joypad.read_byte(addr),
             0xff01..=0xff02 => self.serial.read_byte(addr),
+            0xff04..=0xff07 => self.timer.read_byte(addr),
             0xff0f => self.interrupt_flag.bits,
-            0xff00 | 0xff03..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
+            0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
                 unimplemented!("read: I/O register: {:x}", addr)
             }
             0xff10..=0xff3f => self.apu.read_byte(addr),
@@ -111,9 +119,11 @@ impl MMU {
             }
             0xfe00..=0xfe9f => self.ppu.write_byte(addr, v),
             0xfea0..=0xfeff => (), // unused
+            0xff00 => self.joypad.write_byte(addr, v),
             0xff01..=0xff02 => self.serial.write_byte(addr, v),
+            0xff04..=0xff07 => self.timer.write_byte(addr, v),
             0xff0f => self.interrupt_flag = IF::from_bits_truncate(v),
-            0xff00 | 0xff03..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
+            0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
                 unimplemented!("write: I/O register: {:04x} {:02x}", addr, v)
             }
             0xff10..=0xff3f => self.apu.write_byte(addr, v),
