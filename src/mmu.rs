@@ -77,7 +77,7 @@ impl MMU {
             }
             0x0100..=0x7fff => self.cartridge.read_byte(addr),
             0x8000..=0x9fff => self.ppu.read_byte(addr),
-            0xa000..=0xbeff => unimplemented!("read: Cartridge RAM: {:x}", addr),
+            0xa000..=0xbfff => self.cartridge.read_byte(addr),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize],
             0xe000..=0xfdff => {
                 self.wram[((addr - 0x2000) & (WORKING_RAM_SIZE as u16 - 1)) as usize]
@@ -110,9 +110,9 @@ impl MMU {
 
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
-            0x0000..=0x7fff => (), // read only
+            0x0000..=0x7fff => self.cartridge.write_byte(addr, v),
             0x8000..=0x9fff => self.ppu.write_byte(addr, v),
-            0xa000..=0xbeff => unimplemented!("write: Cartridge RAM: {:04x} {:02x}", addr, v),
+            0xa000..=0xbfff => self.cartridge.write_byte(addr, v),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v,
             0xe000..=0xfdff => {
                 self.wram[((addr - 0x2000) & (WORKING_RAM_SIZE as u16 - 1)) as usize] = v;

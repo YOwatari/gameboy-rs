@@ -1,5 +1,3 @@
-use bitflags::bitflags;
-
 pub struct Timer {
     divider: u8,
     counter: u8,
@@ -22,13 +20,15 @@ impl Timer {
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0xff06 => self.modulo,
+            0xff07 => self.control,
             _ => unimplemented!("read: Timer I/O {:04x}", addr),
         }
     }
 
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
-            0xff06 => self.modulo,
+            0xff06 => self.modulo = v,
+            0xff07 => self.control = v,
             _ => unimplemented!("write: Timer I/O {:04x} {:02x}", addr, v),
         };
     }

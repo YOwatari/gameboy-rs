@@ -10,6 +10,7 @@ pub struct CPU {
     register: Register,
     pub mmu: MMU,
     ime: bool,
+    halted: bool,
 }
 
 impl CPU {
@@ -18,6 +19,7 @@ impl CPU {
             register: Register::new(),
             mmu: MMU::new(bios, rom),
             ime: false,
+            halted: false,
         }
     }
 
@@ -140,6 +142,7 @@ impl CPU {
             // loads
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_n_nn(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.ld_nn_n(opcode),
+            0x40..=0x46 | 0x48..=0x4e | 0x50..=0x56 | 0x58..=0x5e | 0x60..=0x66 | 0x68..=0x6e | 0x70..=0x75 => self.ld_r_r(opcode),
             0x78..=0x7f => self.ld_a_r(opcode),
             0x0a | 0x1a => self.ld_a_rp(opcode),
             0xfa => self.ld_a_nn(),
@@ -158,6 +161,9 @@ impl CPU {
             0xc5 | 0xd5 | 0xe5 | 0xf5 => self.push_rp2(opcode),
 
             // arithmetic
+            0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_rp(opcode),
+            0x88..=0x8e => self.adc_a_r(opcode),
+            0xce => self.adc_a_n(),
             0x80..=0x87 => self.add_a_r(opcode),
             0xc6 => self.add_a_n(),
             0xa0..=0xa7 => self.and_r(opcode),
@@ -177,21 +183,29 @@ impl CPU {
 
             // rotates & shifts
             0x17 => self.rla(),
+            0x1f => self.rra(),
 
             // jumps
             0xc3 => self.jp_nn(),
+            0xe9 => self.jp_hl(),
             0x18 => self.jr_n(),
             0x20 | 0x28 | 0x30 | 0x38 => self.jr_cc_n(opcode),
 
             // calls
+            0xc4 | 0xcc | 0xd4 | 0xdc => self.call_cc_nn(opcode),
             0xcd => self.call_nn(),
+
+            // restarts
+            0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => self.rst_n(opcode),
 
             // returns
             0xc9 => self.ret(),
+            0xc0 | 0xc8 | 0xd0 | 0xd8 => self.ret_cc(opcode),
 
             // miscellaneous
             0x2f => self.cpl(),
             0x00 => 4, // nop
+            0x76 => self.halt(),
             0x37 => self.scf(),
             0xf3 => self.di(),
             0xfb => self.ei(),
@@ -206,6 +220,8 @@ impl CPU {
         match opcode {
             // rotates & shifts
             0x10..=0x17 => self.rl_n(opcode),
+            0x18..=0x1f => self.rr_n(opcode),
+            0x38..=0x3f => self.srl_n(opcode),
             // miscellaneous
             0x30..=0x37 => self.swap_r(opcode),
             // bit
@@ -228,6 +244,19 @@ impl CPU {
         match y {
             6 => 12,
             _ => 8,
+        }
+    }
+
+    fn ld_r_r(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let v = self.read_r(z);
+        self.write_r(y, v);
+
+        match (y, z) {
+            (6, _) => 8,
+            (_, 6) => 8,
+            _ => 4,
         }
     }
 
@@ -341,6 +370,54 @@ impl CPU {
         let nn = self.pop_stack();
         self.write_rp2(p, nn);
         12
+    }
+
+    fn add_hl_rp(&mut self, opcode: u8) -> u32 {
+        let p = (opcode & 0b_0011_0000) >> 4;
+        let nn = self.read_rp(p);
+        let hl = self.register.read_word(HL);
+
+        let h = (hl & 0x0fff) + (nn & 0x0fff) > 0x0fff;
+        let (result, c) = hl.overflowing_add(nn);
+
+        self.register.write_word(HL, result);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+        8
+    }
+
+    fn _adc(&mut self, n: u8) {
+        let a = self.register.a;
+        let carry = if self.register.get_flag(Flags::C) {
+            1
+        } else {
+            0
+        };
+        let result = a.wrapping_add(n).wrapping_add(carry);
+        let h = (a & 0x0f) + (n & 0x0f) + carry > 0x0f;
+        let c = a as u16 + n as u16 + carry as u16 > 0xff;
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+    }
+
+    fn adc_a_n(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self._adc(n);
+        8
+    }
+
+    fn adc_a_r(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        self._adc(n);
+        match z {
+            6 => 8,
+            _ => 4,
+        }
     }
 
     fn _add(&mut self, n: u8) {
@@ -503,7 +580,7 @@ impl CPU {
         self.write_r(y, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
-        self.register.set_flag(Flags::H, n & 0x0f == 0x0f);
+        self.register.set_flag(Flags::H, n & 0x0f != 0);
 
         match y {
             6 => 12,
@@ -519,7 +596,7 @@ impl CPU {
         self.write_r(y, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, true);
-        self.register.set_flag(Flags::H, n & 0x0f == 0x0f);
+        self.register.set_flag(Flags::H, n & 0x0f != 0);
 
         match y {
             6 => 12,
@@ -548,13 +625,28 @@ impl CPU {
         } else {
             0
         };
-
         let result = (a << 1) | c;
         self.register.a = result;
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, a & (1 << 7) == (1 << 7));
+        self.register.set_flag(Flags::C, a & 0x80 != 0);
+        4
+    }
+
+    fn rra(&mut self) -> u32 {
+        let a = self.register.a;
+        let result = (a >> 1)
+            | (if self.register.get_flag(Flags::C) {
+                1
+            } else {
+                0
+            } << 7);
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, a & 1 != 0);
         4
     }
 
@@ -571,7 +663,44 @@ impl CPU {
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, n & (1 << 7) == (1 << 7));
+        self.register.set_flag(Flags::C, n & 0x80 != 0);
+
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn rr_n(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        let result = (n >> 1)
+            | (if self.register.get_flag(Flags::C) {
+                1
+            } else {
+                0
+            } << 7);
+        self.write_r(z, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, n & 1 != 0);
+
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn srl_n(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        let result = n >> 1;
+        self.write_r(z, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, n & 1 != 0);
 
         match z {
             6 => 16,
@@ -600,6 +729,12 @@ impl CPU {
         16
     }
 
+    fn jp_hl(&mut self) -> u32 {
+        let hl = self.register.read_word(HL);
+        self.register.pc = self.mmu.read_word(hl);
+        4
+    }
+
     fn jr_n(&mut self) -> u32 {
         let n = self.fetch_byte() as i8;
         self.register.pc = self.register.pc.wrapping_add(n as u16);
@@ -619,6 +754,19 @@ impl CPU {
         }
     }
 
+    fn call_cc_nn(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let cc = self.read_cc(y);
+        let nn = self.fetch_word();
+        if cc {
+            self.push_stack(self.register.pc);
+            self.register.pc = nn;
+            24
+        } else {
+            12
+        }
+    }
+
     fn call_nn(&mut self) -> u32 {
         let nn = self.fetch_word();
         self.push_stack(self.register.pc);
@@ -626,10 +774,30 @@ impl CPU {
         24
     }
 
+    fn rst_n(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let n = y * 8;
+        self.push_stack(self.register.pc);
+        self.register.pc = n as u16;
+        16
+    }
+
     fn ret(&mut self) -> u32 {
         let nn = self.pop_stack();
         self.register.pc = nn;
         16
+    }
+
+    fn ret_cc(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let cc = self.read_cc(y);
+        if cc {
+            let nn = self.pop_stack();
+            self.register.pc = nn;
+            20
+        } else {
+            8
+        }
     }
 
     fn swap_r(&mut self, opcode: u8) -> u32 {
@@ -647,9 +815,16 @@ impl CPU {
     }
 
     fn cpl(&mut self) -> u32 {
-        self.register.a != self.register.a;
+        self.register.a = !self.register.a;
         self.register.set_flag(Flags::N, true);
         self.register.set_flag(Flags::H, true);
+        4
+    }
+
+    fn halt(&mut self) -> u32 {
+        if self.ime {
+            self.halted = true;
+        }
         4
     }
 
