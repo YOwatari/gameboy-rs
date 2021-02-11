@@ -167,12 +167,15 @@ impl CPU {
             0x2a => self.ldi_a_hl(),
             0x32 => self.ldd_hl_a(),
             0x3a => self.ldd_a_hl(),
+            0xf8 => self.ldhl_sp_n(),
+            0xf9 => self.ld_sp_hl(),
+            0x08 => self.ld_nn_sp(),
             0xc1 | 0xd1 | 0xe1 | 0xf1 => self.pop_rp2(opcode),
             0xc5 | 0xd5 | 0xe5 | 0xf5 => self.push_rp2(opcode),
 
             // arithmetic
             0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_rp(opcode),
-            0x88..=0x8e => self.adc_a_r(opcode),
+            0x88..=0x8f => self.adc_a_r(opcode),
             0xce => self.adc_a_n(),
             0x80..=0x87 => self.add_a_r(opcode),
             0xc6 => self.add_a_n(),
@@ -180,23 +183,28 @@ impl CPU {
             0xe6 => self.and_n(),
             0x90..=0x97 => self.sub_r(opcode),
             0xd6 => self.sub_n(),
+            0x98..=0x9f => self.sbc_a_r(opcode),
+            0xde => self.sbc_a_n(),
             0xb0..=0xb7 => self.or_r(opcode),
             0xf6 => self.or_n(),
             0xa8..=0xaf => self.xor_r(opcode),
             0xee => self.xor_n(),
             0xb8..=0xbf => self.cp_r(opcode),
             0xfe => self.cp_n(),
-            0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc_r(opcode),
-            0x05 | 0x0d | 0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dec_r(opcode),
+            0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc8(opcode),
+            0x05 | 0x0d | 0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dec8(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => self.inc_rp(opcode),
             0x0b | 0x1b | 0x2b | 0x3b => self.dec_rp(opcode),
 
             // rotates & shifts
+            0x07 => self.rlca(),
+            0x0f => self.rrca(),
             0x17 => self.rla(),
             0x1f => self.rra(),
 
             // jumps
             0xc3 => self.jp_nn(),
+            0xc2 | 0xca | 0xd2 | 0xda => self.jp_cc_nn(opcode),
             0xe9 => self.jp_hl(),
             0x18 => self.jr_n(),
             0x20 | 0x28 | 0x30 | 0x38 => self.jr_cc_n(opcode),
@@ -207,15 +215,21 @@ impl CPU {
 
             // restarts
             0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => self.rst_n(opcode),
-
+            /*0xff => {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                panic!("{:?}", self)
+            }*/
             // returns
             0xc9 => self.ret(),
             0xc0 | 0xc8 | 0xd0 | 0xd8 => self.ret_cc(opcode),
 
             // miscellaneous
+            0x27 => self.dda(),
+            0x3f => self.ccf(),
             0x2f => self.cpl(),
             0x00 => 4, // nop
             0x76 => self.halt(),
+            0x10 => 4, // stop
             0x37 => self.scf(),
             0xf3 => self.di(),
             0xfb => self.ei(),
@@ -229,13 +243,18 @@ impl CPU {
         let opcode = self.fetch_byte();
         match opcode {
             // rotates & shifts
-            0x10..=0x17 => self.rl_n(opcode),
-            0x18..=0x1f => self.rr_n(opcode),
-            0x38..=0x3f => self.srl_n(opcode),
-            // miscellaneous
-            0x30..=0x37 => self.swap_r(opcode),
+            0x00..=0x07 => self.rlc(opcode),
+            0x08..=0x0f => self.rrc(opcode),
+            0x10..=0x17 => self.rl(opcode),
+            0x18..=0x1f => self.rr(opcode),
+            0x20..=0x27 => self.sla(opcode),
+            0x28..=0x2f => self.sra(opcode),
+            0x30..=0x37 => self.swap(opcode),
+            0x38..=0x3f => self.srl(opcode),
             // bit
-            0x40..=0x7f => self.bit_b_r(opcode),
+            0x40..=0x7f => self.bit(opcode),
+            0x80..=0xbf => self.res(opcode),
+            0xc0..=0xff => self.set(opcode),
             _ => unimplemented!("unknown cb opcode: 0x{:02x}\ncput: {:?}", opcode, self),
         }
     }
@@ -368,6 +387,32 @@ impl CPU {
         8
     }
 
+    fn ld_sp_hl(&mut self) -> u32 {
+        let hl = self.register.read_word(HL);
+        self.register.sp = hl;
+        8
+    }
+
+    fn ldhl_sp_n(&mut self) -> u32 {
+        let n = self.fetch_byte() as i8;
+        let v = n as u16;
+        let h = (self.register.sp & 0x0f) + (v & 0x0f) > 0x0f;
+        let c = (self.register.sp & 0xff) & (v & 0xff) > 0xff;
+        self.register
+            .write_word(HL, self.register.sp.wrapping_add(v));
+        self.register.set_flag(Flags::Z, false);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+        12
+    }
+
+    fn ld_nn_sp(&mut self) -> u32 {
+        let nn = self.fetch_word();
+        self.mmu.write_word(nn, self.register.sp);
+        20
+    }
+
     fn push_rp2(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp2(p);
@@ -406,7 +451,7 @@ impl CPU {
         };
         let result = a.wrapping_add(n).wrapping_add(carry);
         let h = (a & 0x0f) + (n & 0x0f) + carry > 0x0f;
-        let c = a as u16 + n as u16 + carry as u16 > 0xff;
+        let c = (a as u16) + (n as u16) + (carry as u16) > 0xff;
         self.register.a = result;
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
@@ -484,11 +529,12 @@ impl CPU {
 
     fn _sub(&mut self, n: u8) {
         let a = self.register.a;
+        let h = (a & 0x0f) < (n & 0x0f);
         let (result, c) = a.overflowing_sub(n);
         self.register.a = result;
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, true);
-        self.register.set_flag(Flags::H, (a & 0x0f) < (n & 0x0f));
+        self.register.set_flag(Flags::H, h);
         self.register.set_flag(Flags::C, c);
     }
 
@@ -505,6 +551,39 @@ impl CPU {
     fn sub_n(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._sub(n);
+        8
+    }
+
+    fn _sbc(&mut self, n: u8) {
+        let a = self.register.a;
+        let carry = if self.register.get_flag(Flags::C) {
+            1
+        } else {
+            0
+        };
+        let result = a.wrapping_sub(n).wrapping_sub(carry);
+        let h = (a & 0x0f) < (n & 0x0f) + carry;
+        let c = (a as u16) < (n as u16) + (carry as u16);
+        self.register.a = result;
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, true);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+    }
+
+    fn sbc_a_r(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        self._sbc(n);
+        match z {
+            6 => 8,
+            _ => 4,
+        }
+    }
+
+    fn sbc_a_n(&mut self) -> u32 {
+        let n = self.fetch_byte();
+        self._sbc(n);
         8
     }
 
@@ -582,32 +661,28 @@ impl CPU {
         8
     }
 
-    fn inc_r(&mut self, opcode: u8) -> u32 {
+    fn inc8(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         let n = self.read_r(y);
-
         let result = n.wrapping_add(1);
         self.write_r(y, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
-        self.register.set_flag(Flags::H, n & 0x0f != 0);
-
+        self.register.set_flag(Flags::H, (n & 0x0f) + 1 > 0x0f);
         match y {
             6 => 12,
             _ => 4,
         }
     }
 
-    fn dec_r(&mut self, opcode: u8) -> u32 {
+    fn dec8(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         let n = self.read_r(y);
-
         let result = n.wrapping_sub(1);
         self.write_r(y, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, true);
-        self.register.set_flag(Flags::H, n & 0x0f != 0);
-
+        self.register.set_flag(Flags::H, (n & 0x0f) == 0x00);
         match y {
             6 => 12,
             _ => 4,
@@ -628,81 +703,162 @@ impl CPU {
         8
     }
 
-    fn rla(&mut self) -> u32 {
-        let a = self.register.a;
-        let c = if self.register.get_flag(Flags::C) {
-            1
-        } else {
-            0
-        };
-        let result = (a << 1) | c;
-        self.register.a = result;
+    fn _rlc(&mut self, r: u8) {
+        let n = self.read_r(r);
+        let result = n.rotate_left(1);
+        self.write_r(r, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, a & 0x80 != 0);
+        self.register.set_flag(Flags::C, n & 0x80 != 0);
+    }
+
+    fn rlca(&mut self) -> u32 {
+        self._rlc(7);
+        self.register.set_flag(Flags::Z, false);
         4
     }
 
-    fn rra(&mut self) -> u32 {
-        let a = self.register.a;
-        let result = (a >> 1)
-            | (if self.register.get_flag(Flags::C) {
-                1
-            } else {
-                0
-            } << 7);
-        self.register.a = result;
-        self.register.set_flag(Flags::Z, result == 0);
-        self.register.set_flag(Flags::N, false);
-        self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, a & 1 != 0);
-        4
-    }
-
-    fn rl_n(&mut self, opcode: u8) -> u32 {
+    fn rlc(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
-        let n = self.read_r(z);
-        let c = if self.register.get_flag(Flags::C) {
+        self._rlc(z);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn _rl(&mut self, r: u8) {
+        let n = self.read_r(r);
+        let c: u8 = if self.register.get_flag(Flags::C) {
             1
         } else {
             0
         };
         let result = (n << 1) | c;
+        self.write_r(r, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, n & 0x80 != 0);
+    }
+
+    fn rla(&mut self) -> u32 {
+        self._rl(7);
+        self.register.set_flag(Flags::Z, false);
+        4
+    }
+
+    fn rl(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        self._rl(z);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn _rrc(&mut self, r: u8) {
+        let n = self.read_r(r);
+        let result = n.rotate_right(1);
+        self.write_r(r, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, n & 1 != 0);
+    }
+
+    fn rrca(&mut self) -> u32 {
+        self._rrc(7);
+        self.register.set_flag(Flags::Z, false);
+        4
+    }
+
+    fn rrc(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        self._rrc(z);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn _rr(&mut self, r: u8) {
+        let n = self.read_r(r);
+        let c: u8 = if self.register.get_flag(Flags::C) {
+            1
+        } else {
+            0
+        };
+        let result = (n >> 1) | (c << 7);
+        self.write_r(r, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, n & 1 != 0);
+    }
+
+    fn rra(&mut self) -> u32 {
+        self._rr(7);
+        self.register.set_flag(Flags::Z, false);
+        4
+    }
+
+    fn rr(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        self._rr(z);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn sla(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_0111;
+        let n = self.read_r(z);
+        let result = n << 1;
         self.write_r(z, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
         self.register.set_flag(Flags::C, n & 0x80 != 0);
-
         match z {
             6 => 16,
             _ => 8,
         }
     }
 
-    fn rr_n(&mut self, opcode: u8) -> u32 {
+    fn sra(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
-        let result = (n >> 1)
-            | (if self.register.get_flag(Flags::C) {
-                1
-            } else {
-                0
-            } << 7);
+        let result = (n >> 1) | (n & 0x80);
         self.write_r(z, result);
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
         self.register.set_flag(Flags::C, n & 1 != 0);
-
         match z {
             6 => 16,
             _ => 8,
         }
     }
 
-    fn srl_n(&mut self, opcode: u8) -> u32 {
+    fn swap(&mut self, opcode: u8) -> u32 {
+        let z = opcode & 0b_0000_00111;
+        let n = self.read_r(z);
+        let result = ((n & 0x0f) << 4) | ((n & 0xf0) >> 4);
+        self.write_r(z, result);
+        self.register.set_flag(Flags::Z, result == 0);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, false);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn srl(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         let result = n >> 1;
@@ -711,24 +867,47 @@ impl CPU {
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
         self.register.set_flag(Flags::C, n & 1 != 0);
-
         match z {
             6 => 16,
             _ => 8,
         }
     }
 
-    fn bit_b_r(&mut self, opcode: u8) -> u32 {
-        let b = (opcode & 0b_0011_1000) >> 3;
-        let r8_idx = opcode & 0b_0000_0111;
-        let reg = self.read_r(r8_idx);
-        let result = reg & (1 << b);
+    fn bit(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let z = opcode & 0b_0000_0111;
+        let v = self.read_r(z);
+        let result = (v >> y) & 1;
         self.register.set_flag(Flags::Z, result == 0);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, true);
 
-        match r8_idx {
+        match z {
             6 => 12,
+            _ => 8,
+        }
+    }
+
+    fn res(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let z = opcode & 0b_0000_0111;
+        let v = self.read_r(z);
+        let result = v & !(1 << y);
+        self.write_r(z, result);
+        match z {
+            6 => 16,
+            _ => 8,
+        }
+    }
+
+    fn set(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let z = opcode & 0b_0000_0111;
+        let v = self.read_r(z);
+        let result = v & (1 << y);
+        self.write_r(z, result);
+        match z {
+            6 => 16,
             _ => 8,
         }
     }
@@ -739,16 +918,22 @@ impl CPU {
         16
     }
 
-    fn jp_hl(&mut self) -> u32 {
-        let hl = self.register.read_word(HL);
-        self.register.pc = self.mmu.read_word(hl);
-        4
+    fn jp_cc_nn(&mut self, opcode: u8) -> u32 {
+        let y = (opcode & 0b_0011_1000) >> 3;
+        let cc = self.read_cc(y);
+        let nn = self.fetch_word();
+        if cc {
+            self.register.pc = nn;
+            16
+        } else {
+            12
+        }
     }
 
-    fn jr_n(&mut self) -> u32 {
-        let n = self.fetch_byte() as i8;
-        self.register.pc = self.register.pc.wrapping_add(n as u16);
-        12
+    fn jp_hl(&mut self) -> u32 {
+        let hl = self.register.read_word(HL);
+        self.register.pc = hl;
+        4
     }
 
     fn jr_cc_n(&mut self, opcode: u8) -> u32 {
@@ -762,6 +947,12 @@ impl CPU {
         } else {
             8
         }
+    }
+
+    fn jr_n(&mut self) -> u32 {
+        let n = self.fetch_byte() as i8;
+        self.register.pc = self.register.pc.wrapping_add(n as u16);
+        12
     }
 
     fn call_cc_nn(&mut self, opcode: u8) -> u32 {
@@ -810,18 +1001,40 @@ impl CPU {
         }
     }
 
-    fn swap_r(&mut self, opcode: u8) -> u32 {
-        let z = opcode & 0b_0000_00111;
-        let n = self.read_r(z);
-        let result = ((n & 0x0f) << 4) | ((n & 0xf0) >> 4);
-        self.register.set_flag(Flags::Z, result == 0);
+    fn dda(&mut self) -> u32 {
+        let mut a = self.register.a;
+        let mut adjust = 0u8;
+        if self.register.get_flag(Flags::C) {
+            adjust |= 0x60;
+        }
+        if self.register.get_flag(Flags::H) {
+            adjust |= 0x06;
+        };
+        if !self.register.get_flag(Flags::N) {
+            if a & 0x0f > 0x09 {
+                adjust |= 0x06;
+            };
+            if a > 0x99 {
+                adjust |= 0x60;
+            };
+            a = a.wrapping_add(adjust);
+        } else {
+            a = a.wrapping_sub(adjust);
+        }
+
+        self.register.a = a;
+        self.register.set_flag(Flags::Z, a == 0);
+        self.register.set_flag(Flags::H, false);
+        self.register.set_flag(Flags::C, adjust >= 0x60);
+        4
+    }
+
+    fn ccf(&mut self) -> u32 {
+        let c = self.register.get_flag(Flags::C);
         self.register.set_flag(Flags::N, false);
         self.register.set_flag(Flags::H, false);
-        self.register.set_flag(Flags::C, false);
-        match z {
-            6 => 16,
-            _ => 8,
-        }
+        self.register.set_flag(Flags::C, !c);
+        4
     }
 
     fn cpl(&mut self) -> u32 {

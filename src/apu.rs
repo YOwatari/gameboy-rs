@@ -66,6 +66,7 @@ impl APU {
             0xff12 => self.channel1.read_nr_x2(),
             0xff13 => 0xff, // write only
             0xff14 => self.channel1.read_nr_x4(),
+            0xff15 => 0xff, // TODO
 
             0xff16 => self.channel2.read_nr_x1(),
             0xff17 => self.channel2.read_nr_x2(),
@@ -74,6 +75,7 @@ impl APU {
 
             0xff1a => self.channel3.read_nr_x0(),
             0xff1b => self.channel3.read_nr_x1(),
+            0xff1c..=0xff1f => 0xff, // TODO
 
             0xff20 => self.channel4.read_nr_x1(),
             0xff21 => self.channel4.read_nr_x2(),
@@ -94,6 +96,7 @@ impl APU {
                     | (if self.channel2.status { 0b_0010 } else { 0 })
                     | (if self.channel1.status { 0b_0001 } else { 0 })
             }
+            0xff27..=0xff3f => 0xff, // TODO
             _ => unimplemented!("read: Sound I/O {:04x}", addr),
         }
     }
@@ -105,6 +108,7 @@ impl APU {
             0xff12 => self.channel1.write_nr_x2(v),
             0xff13 => self.channel1.write_nr_x3(v),
             0xff14 => self.channel1.write_nr_x4(v),
+            0xff15 => (), // TODO
 
             0xff16 => self.channel2.write_nr_x1(v),
             0xff17 => self.channel2.write_nr_x2(v),
@@ -113,6 +117,7 @@ impl APU {
 
             0xff1a => self.channel3.write_nr_x0(v),
             0xff1b => self.channel3.write_nr_x1(v),
+            0xff1c..=0xff1f => (), // TODO
 
             0xff20 => self.channel4.write_nr_x1(v),
             0xff21 => self.channel4.write_nr_x2(v),
@@ -140,6 +145,7 @@ impl APU {
                     self.left_output = SelectChannels::empty();
                 }
             }
+            0xff27..=0xff3f => (), // TODO
             _ => unimplemented!("write: Sound I/O {:04x} {:02x}", addr, v),
         }
     }

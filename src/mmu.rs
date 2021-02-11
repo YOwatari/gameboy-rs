@@ -80,11 +80,12 @@ impl MMU {
             0xff04..=0xff07 => self.timer.read_byte(addr),
             0xff0f => self.interrupt_flag.bits,
             0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
+                return 0xff; // TODO
                 unimplemented!("read: I/O register: {:x}", addr)
             }
             0xff10..=0xff3f => self.apu.read_byte(addr),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.read_byte(addr),
-            0xff46 => unimplemented!("read: I/O register: {:x}", addr),
+            0xff46 => 0xff, // TODO unimplemented!("read: I/O register: {:x}", addr),
             0xff50 => {
                 if self.cartridge.bios_disable {
                     1
@@ -115,11 +116,12 @@ impl MMU {
             0xff04..=0xff07 => self.timer.write_byte(addr, v),
             0xff0f => self.interrupt_flag = IF::from_bits_truncate(v),
             0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
+                return; // TODO
                 unimplemented!("write: I/O register: {:04x} {:02x}", addr, v)
             }
             0xff10..=0xff3f => self.apu.write_byte(addr, v),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.write_byte(addr, v),
-            0xff46 => unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
+            0xff46 => (), // TODO unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
             0xff50 => self.cartridge.bios_disable = v != 0,
             0xff7f => (), // unused
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
@@ -129,7 +131,7 @@ impl MMU {
     }
 
     pub fn read_word(&self, addr: u16) -> u16 {
-        self.read_byte(addr) as u16 | (self.read_byte(addr + 1) as u16) << 8
+        ((self.read_byte(addr + 1) as u16) << 8) | self.read_byte(addr) as u16
     }
 
     pub fn write_word(&mut self, addr: u16, v: u16) {

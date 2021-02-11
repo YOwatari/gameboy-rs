@@ -19,6 +19,8 @@ impl Timer {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
+            0xff04 => 0xff, // TODO
+            0xff05 => 0xff, // TODO
             0xff06 => self.modulo,
             0xff07 => self.control,
             _ => unimplemented!("read: Timer I/O {:04x}", addr),
@@ -27,6 +29,8 @@ impl Timer {
 
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
+            0xff04 => (), // TODO
+            0xff05 => (), // TODO
             0xff06 => self.modulo = v,
             0xff07 => self.control = v,
             _ => unimplemented!("write: Timer I/O {:04x} {:02x}", addr, v),
