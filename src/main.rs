@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate env_logger;
 extern crate log;
 extern crate minifb;
@@ -7,7 +8,7 @@ use minifb::{Key, Scale, Window, WindowOptions};
 use std::fs::File;
 use std::io::Read;
 use std::path;
-use std::{env, thread, time};
+use std::{thread, time};
 
 mod apu;
 mod cartridge;
@@ -23,7 +24,7 @@ use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 const CPU_CYCLES_PER_FRAME: u32 = 70224;
 
-fn open_rom_file(filepath: &String) -> Vec<u8> {
+fn open_rom_file(filepath: &str) -> Vec<u8> {
     let mut data = Vec::<u8>::new();
     let p = path::PathBuf::from(filepath);
     let mut f = File::open(p).unwrap();
@@ -44,13 +45,43 @@ fn sleep(now: time::Instant) {
 fn main() {
     env_logger::init();
 
-    let args: Vec<String> = env::args().collect();
-    let bios = open_rom_file(&args[1]);
-    let rom = open_rom_file(&args[2]);
+    let matches = clap::App::new("rust-gameboy")
+        .arg(
+            clap::Arg::with_name("rom")
+                .takes_value(true)
+                .required(true)
+                .long("rom"),
+        )
+        .arg(
+            clap::Arg::with_name("bios")
+                .takes_value(true)
+                .required(false)
+                .long("bios"),
+        )
+        .arg(
+            clap::Arg::with_name("headless")
+                .takes_value(false)
+                .required(false)
+                .long("headless"),
+        )
+        .get_matches();
 
-    let mut cpu = CPU::new(bios, rom);
+    let opt_headless = matches.is_present("headless");
+    let opt_bios = matches.is_present("bios");
+    let rom_file = matches.value_of("rom").unwrap();
 
-    if &args[3] == "--headless" {
+    let rom = open_rom_file(rom_file);
+    let mut cpu = CPU::new(rom);
+
+    if opt_bios {
+        let bios_file = matches.value_of("bios").unwrap();
+        let bios = open_rom_file(bios_file);
+        cpu.mmu.cartridge.load_bios(bios);
+    } else {
+        cpu.init();
+    }
+
+    if opt_headless {
         // for debug
         loop {
             let now = time::Instant::now();

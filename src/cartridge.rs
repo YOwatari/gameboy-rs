@@ -1,5 +1,8 @@
+use log::info;
+
 pub struct Cartridge {
     bios: Vec<u8>,
+    pub bios_disable: bool,
     rom: Vec<u8>,
     rom_banks: u8,
     rom_bank_number_hi: u8,
@@ -10,7 +13,8 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn new(bios: Vec<u8>, rom: Vec<u8>) -> Cartridge {
+    pub fn new(rom: Vec<u8>) -> Cartridge {
+        info!("MBC type: {:02x}", rom[0x147]);
         let ram_size: usize = match rom[0x0149] {
             0 => 0,
             1 => 2 * 1024,   // 1
@@ -31,7 +35,8 @@ impl Cartridge {
         };
 
         Cartridge {
-            bios,
+            bios: Vec::<u8>::new(),
+            bios_disable: true,
             rom,
             rom_banks,
             rom_bank_number_hi: 0,
@@ -42,10 +47,23 @@ impl Cartridge {
         }
     }
 
+    pub fn load_bios(&mut self, bios: Vec<u8>) {
+        self.bios = bios;
+        self.bios_disable = false;
+    }
+
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             // BIOS
-            0x0000..=0x00ff => self.bios[addr as usize],
+            0x0000..=0x00ff => {
+                if self.bios_disable {
+                    return 0xff;
+                }
+                if self.bios.len() > 0 {
+                    return self.bios[addr as usize];
+                }
+                self.rom[addr as usize]
+            }
             // ROM bank 00
             0x0100..=0x3fff => self.rom[addr as usize],
             // ROM bank 01-1f

@@ -12,12 +12,11 @@ const WORKING_RAM_SIZE: usize = 8 * 1024;
 const HIGH_RAM_SIZE: usize = 128;
 
 pub struct MMU {
-    cartridge: Cartridge,
+    pub cartridge: Cartridge,
     wram: [u8; WORKING_RAM_SIZE],
     hram: [u8; HIGH_RAM_SIZE],
     pub ppu: PPU,
     apu: APU,
-    bios_disable: bool,
     interrupt_enable: IE,
     interrupt_flag: IF,
     serial: Serial,
@@ -46,14 +45,13 @@ bitflags!(
 );
 
 impl MMU {
-    pub fn new(bios: Vec<u8>, rom: Vec<u8>) -> MMU {
+    pub fn new(rom: Vec<u8>) -> MMU {
         MMU {
-            cartridge: Cartridge::new(bios, rom),
+            cartridge: Cartridge::new(rom),
             wram: [0; WORKING_RAM_SIZE],
             hram: [0; HIGH_RAM_SIZE],
             ppu: PPU::new(),
             apu: APU::new(),
-            bios_disable: false,
             interrupt_enable: IE::empty(),
             interrupt_flag: IF::empty(),
             serial: Serial::new(),
@@ -68,14 +66,7 @@ impl MMU {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x00ff => {
-                if self.bios_disable {
-                    0xff
-                } else {
-                    self.cartridge.read_byte(addr)
-                }
-            }
-            0x0100..=0x7fff => self.cartridge.read_byte(addr),
+            0x0000..=0x7fff => self.cartridge.read_byte(addr),
             0x8000..=0x9fff => self.ppu.read_byte(addr),
             0xa000..=0xbfff => self.cartridge.read_byte(addr),
             0xc000..=0xdfff => self.wram[(addr & (WORKING_RAM_SIZE as u16 - 1)) as usize],
@@ -95,7 +86,7 @@ impl MMU {
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.read_byte(addr),
             0xff46 => unimplemented!("read: I/O register: {:x}", addr),
             0xff50 => {
-                if self.bios_disable {
+                if self.cartridge.bios_disable {
                     1
                 } else {
                     0
@@ -129,7 +120,7 @@ impl MMU {
             0xff10..=0xff3f => self.apu.write_byte(addr, v),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.write_byte(addr, v),
             0xff46 => unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
-            0xff50 => self.bios_disable = v != 0,
+            0xff50 => self.cartridge.bios_disable = v != 0,
             0xff7f => (), // unused
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
             0xffff..=0xffff => self.interrupt_enable = IE::from_bits_truncate(v),
@@ -143,7 +134,7 @@ impl MMU {
 
     pub fn write_word(&mut self, addr: u16, v: u16) {
         self.write_byte(addr, v as u8);
-        self.write_byte(addr + 1, (v >> 8) as u8);
+        self.write_byte(addr.wrapping_add(1), (v >> 8) as u8);
     }
 }
 

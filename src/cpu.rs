@@ -14,13 +14,22 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(bios: Vec<u8>, rom: Vec<u8>) -> CPU {
+    pub fn new(rom: Vec<u8>) -> CPU {
         CPU {
             register: Register::new(),
-            mmu: MMU::new(bios, rom),
+            mmu: MMU::new(rom),
             ime: false,
             halted: false,
         }
+    }
+
+    pub fn init(&mut self) {
+        self.register.write_word(AF, 0x01b0);
+        self.register.write_word(BC, 0x0013);
+        self.register.write_word(DE, 0x00d8);
+        self.register.write_word(HL, 0x014d);
+        self.register.sp = 0xfffe;
+        self.register.pc = 0x0100;
     }
 
     pub fn run(&mut self) -> u32 {
@@ -142,11 +151,12 @@ impl CPU {
             // loads
             0x01 | 0x11 | 0x21 | 0x31 => self.ld_n_nn(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.ld_nn_n(opcode),
-            0x40..=0x46 | 0x48..=0x4e | 0x50..=0x56 | 0x58..=0x5e | 0x60..=0x66 | 0x68..=0x6e | 0x70..=0x75 => self.ld_r_r(opcode),
+            0x40..=0x46 | 0x48..=0x4e | 0x50..=0x56 | 0x58..=0x5e => self.ld_r_r(opcode),
+            0x60..=0x66 | 0x68..=0x6e | 0x70..=0x75 => self.ld_r_r(opcode),
             0x78..=0x7f => self.ld_a_r(opcode),
             0x0a | 0x1a => self.ld_a_rp(opcode),
             0xfa => self.ld_a_nn(),
-            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 /*| 0x7f*/ => self.ld_r_a(opcode),
+            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 => self.ld_r_a(opcode),
             0x02 | 0x12 => self.ld_rp_a(opcode),
             0xea => self.ld_nn_a(),
             0xe2 => self.ld_c_a(),
