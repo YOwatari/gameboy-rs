@@ -56,9 +56,6 @@ impl Cartridge {
         match addr {
             // BIOS
             0x0000..=0x00ff => {
-                if self.bios_disable {
-                    return 0xff;
-                }
                 if self.bios.len() > 0 {
                     return self.bios[addr as usize];
                 }

@@ -175,6 +175,7 @@ impl CPU {
 
             // arithmetic
             0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_rp(opcode),
+            0xe8 => self.add_sp_n(),
             0x88..=0x8f => self.adc_a_r(opcode),
             0xce => self.adc_a_n(),
             0x80..=0x87 => self.add_a_r(opcode),
@@ -193,8 +194,8 @@ impl CPU {
             0xfe => self.cp_n(),
             0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc8(opcode),
             0x05 | 0x0d | 0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dec8(opcode),
-            0x03 | 0x13 | 0x23 | 0x33 => self.inc_rp(opcode),
-            0x0b | 0x1b | 0x2b | 0x3b => self.dec_rp(opcode),
+            0x03 | 0x13 | 0x23 | 0x33 => self.inc16(opcode),
+            0x0b | 0x1b | 0x2b | 0x3b => self.dec16(opcode),
 
             // rotates & shifts
             0x07 => self.rlca(),
@@ -214,13 +215,11 @@ impl CPU {
             0xcd => self.call_nn(),
 
             // restarts
-            0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => self.rst_n(opcode),
-            /*0xff => {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                panic!("{:?}", self)
-            }*/
+            0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => self.rst(opcode),
+
             // returns
             0xc9 => self.ret(),
+            0xd9 => self.reti(),
             0xc0 | 0xc8 | 0xd0 | 0xd8 => self.ret_cc(opcode),
 
             // miscellaneous
@@ -440,6 +439,19 @@ impl CPU {
         self.register.set_flag(Flags::H, h);
         self.register.set_flag(Flags::C, c);
         8
+    }
+
+    fn add_sp_n(&mut self) -> u32 {
+        let n = self.fetch_byte() as i8;
+        let v = n as u16;
+        let h = (self.register.sp & 0x0f) + (v & 0x0f) > 0x0f;
+        let c = (self.register.sp & 0xff) + (v & 0xff) > 0xff;
+        self.register.sp = self.register.sp.wrapping_add(v);
+        self.register.set_flag(Flags::Z, false);
+        self.register.set_flag(Flags::N, false);
+        self.register.set_flag(Flags::H, h);
+        self.register.set_flag(Flags::C, c);
+        16
     }
 
     fn _adc(&mut self, n: u8) {
@@ -689,14 +701,14 @@ impl CPU {
         }
     }
 
-    fn inc_rp(&mut self, opcode: u8) -> u32 {
+    fn inc16(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp(p);
         self.write_rp(p, nn.wrapping_add(1));
         8
     }
 
-    fn dec_rp(&mut self, opcode: u8) -> u32 {
+    fn dec16(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp(p);
         self.write_rp(p, nn.wrapping_sub(1));
@@ -904,7 +916,7 @@ impl CPU {
         let y = (opcode & 0b_0011_1000) >> 3;
         let z = opcode & 0b_0000_0111;
         let v = self.read_r(z);
-        let result = v & (1 << y);
+        let result = v | (1 << y);
         self.write_r(z, result);
         match z {
             6 => 16,
@@ -936,6 +948,12 @@ impl CPU {
         4
     }
 
+    fn jr_n(&mut self) -> u32 {
+        let n = self.fetch_byte() as i8;
+        self.register.pc = self.register.pc.wrapping_add(n as u16);
+        12
+    }
+
     fn jr_cc_n(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         let cc = self.read_cc(y - 4);
@@ -949,19 +967,17 @@ impl CPU {
         }
     }
 
-    fn jr_n(&mut self) -> u32 {
-        let n = self.fetch_byte() as i8;
-        self.register.pc = self.register.pc.wrapping_add(n as u16);
-        12
+    fn _call(&mut self, addr: u16) {
+        self.push_stack(self.register.pc);
+        self.register.pc = addr;
     }
 
     fn call_cc_nn(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         let cc = self.read_cc(y);
-        let nn = self.fetch_word();
+        let addr = self.fetch_word();
         if cc {
-            self.push_stack(self.register.pc);
-            self.register.pc = nn;
+            self._call(addr);
             24
         } else {
             12
@@ -969,23 +985,28 @@ impl CPU {
     }
 
     fn call_nn(&mut self) -> u32 {
-        let nn = self.fetch_word();
-        self.push_stack(self.register.pc);
-        self.register.pc = nn;
+        let addr = self.fetch_word();
+        self._call(addr);
         24
     }
 
-    fn rst_n(&mut self, opcode: u8) -> u32 {
+    fn rst(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
-        let n = y * 8;
-        self.push_stack(self.register.pc);
-        self.register.pc = n as u16;
+        let addr = y * 8;
+        self._call(addr as u16);
         16
     }
 
     fn ret(&mut self) -> u32 {
         let nn = self.pop_stack();
         self.register.pc = nn;
+        16
+    }
+
+    fn reti(&mut self) -> u32 {
+        let nn = self.pop_stack();
+        self.register.pc = nn;
+        self.ime = true;
         16
     }
 
