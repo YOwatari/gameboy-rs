@@ -396,7 +396,7 @@ impl CPU {
         let n = self.fetch_byte() as i8;
         let v = n as u16;
         let h = (self.register.sp & 0x0f) + (v & 0x0f) > 0x0f;
-        let c = (self.register.sp & 0xff) & (v & 0xff) > 0xff;
+        let c = (self.register.sp & 0xff) + (v & 0xff) > 0xff;
         self.register
             .write_word(HL, self.register.sp.wrapping_add(v));
         self.register.set_flag(Flags::Z, false);
