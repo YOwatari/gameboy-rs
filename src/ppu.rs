@@ -24,6 +24,8 @@ pub struct PPU {
     wy: u8,
     wx: u8,
     pub frame_buffer: [u32; SCREEN_PIXELS],
+    pub interrupt_vblank: bool,
+    pub interrupt_lcdc: bool,
 }
 
 bitflags!(
@@ -80,6 +82,29 @@ impl PPU {
             wy: 0,
             wx: 0,
             frame_buffer: [0; SCREEN_PIXELS],
+            interrupt_vblank: false,
+            interrupt_lcdc: false,
+        }
+    }
+
+    fn check_lyc(&mut self) {
+        if self.ly == self.lyc {
+            self.stat.set(Stat::LYC_FLAG, true);
+
+            if self.stat.contains(Stat::LYC_INTERRUPT) {
+                self.interrupt_lcdc = true;
+            }
+        } else {
+            self.stat.set(Stat::LYC_FLAG, false);
+        }
+    }
+
+    fn check_interrupt(&mut self) {
+        match self.mode {
+            Mode::HBlank => self.interrupt_lcdc = true,
+            Mode::VBlank => self.interrupt_lcdc = true,
+            Mode::AccessOAM => self.interrupt_lcdc = true,
+            _ => (),
         }
     }
 
@@ -98,7 +123,7 @@ impl PPU {
                     self.clocks -= 172;
                     self.render_line();
                     self.mode = Mode::HBlank;
-                    // interrupt
+                    self.check_interrupt();
                 }
             }
             Mode::HBlank => {
@@ -108,11 +133,13 @@ impl PPU {
 
                     if self.ly >= SCREEN_HEIGHT as u8 {
                         self.mode = Mode::VBlank;
-                    // interrupt
+                        self.interrupt_vblank = true;
                     } else {
                         self.mode = Mode::AccessOAM;
                     }
-                    // interrupt
+
+                    self.check_lyc();
+                    self.check_interrupt();
                 }
             }
             Mode::VBlank => {
@@ -123,9 +150,10 @@ impl PPU {
                     if self.ly >= SCREEN_HEIGHT as u8 + 10 {
                         self.mode = Mode::AccessOAM;
                         self.ly = 0;
-                        // interrupt
+                        self.check_interrupt();
                     }
-                    // interrupt
+
+                    self.check_lyc();
                 }
             }
         }
@@ -140,9 +168,9 @@ impl PPU {
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize]
             }
             0xfe00..=0xfe9f => {
-                /*if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
+                if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
                     return 0xff;
-                }*/
+                }
                 self.oam[(addr & (OAM_SIZE as u16 - 1)) as usize]
             }
             0xff40 => self.control.bits,
@@ -169,9 +197,9 @@ impl PPU {
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize] = v;
             }
             0xfe00..=0xfe9f => {
-                /*if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
+                if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
                     return;
-                }*/
+                }
                 self.oam[(addr & (OAM_SIZE as u16 - 1)) as usize] = v;
             }
             0xff40 => {
@@ -185,7 +213,7 @@ impl PPU {
                         Stat::HBLANK_MODE
                     };
                     self.stat.insert(mode);
-                    // interrupt
+                    self.check_interrupt();
                 }
                 self.control = val;
             }
@@ -193,7 +221,12 @@ impl PPU {
             0xff42 => self.scy = v,
             0xff43 => self.scx = v,
             0xff44 => (), // read only
-            0xff45 => self.lyc = v,
+            0xff45 => {
+                if self.lyc != v {
+                    self.lyc = v;
+                    self.check_lyc();
+                }
+            }
             0xff47 => self.bgp = v,
             0xff48 => self.obp0 = v,
             0xff49 => self.obp1 = v,
@@ -263,10 +296,7 @@ impl fmt::Debug for PPU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "PPU: {{ \
-lcdc: {:02x}, scy: {:02x}, scx: {:02x}, \
-bgp: {:02x}, \
-wy: {:02x}, wx: {:02x} }}",
+            "PPU: {{ lcdc: {:02x}, scy: {:02x}, scx: {:02x}, bgp: {:02x}, wy: {:02x}, wx: {:02x} }}",
             self.control.bits, self.scy, self.scx, self.bgp, self.wy, self.wx,
         )
     }

@@ -3,13 +3,15 @@ mod register;
 use crate::cpu::register::Flags;
 use crate::cpu::register::Register;
 use crate::cpu::register::Register16::{AF, BC, DE, HL};
-use crate::mmu::MMU;
+use crate::mmu::{Interrupt, MMU};
 
 #[derive(Debug)]
 pub struct CPU {
     register: Register,
     pub mmu: MMU,
     ime: bool,
+    ei: u8,
+    di: u8,
     halted: bool,
 }
 
@@ -19,6 +21,8 @@ impl CPU {
             register: Register::new(),
             mmu: MMU::new(rom),
             ime: false,
+            ei: 0,
+            di: 0,
             halted: false,
         }
     }
@@ -33,10 +37,72 @@ impl CPU {
     }
 
     pub fn run(&mut self) -> u32 {
-        let opcode = self.fetch_byte();
-        let tick = self.execute(opcode);
-        self.mmu.run(tick);
-        tick
+        let ticks = self.run_with_interrupt();
+        self.mmu.run(ticks);
+        ticks
+    }
+
+    pub fn run_with_interrupt(&mut self) -> u32 {
+        self.update_ime();
+        match self.handle_interrupt() {
+            0 => (),
+            n => return n,
+        };
+
+        if self.halted {
+            self.execute(0x00) // nop
+        } else {
+            let opcode = self.fetch_byte();
+            self.execute(opcode)
+        }
+    }
+
+    fn update_ime(&mut self) {
+        self.di = match self.di {
+            2 => 1,
+            1 => {
+                self.ime = false;
+                0
+            }
+            _ => 0,
+        };
+        self.ei = match self.ei {
+            2 => 1,
+            1 => {
+                self.ime = true;
+                0
+            }
+            _ => 0,
+        };
+    }
+
+    fn handle_interrupt(&mut self) -> u32 {
+        if !self.ime && !self.halted {
+            return 0;
+        }
+
+        let request = self.mmu.interrupt_enable.bits() & self.mmu.interrupt_flag.bits();
+        if request == 0 {
+            return 0;
+        }
+
+        self.halted = false;
+        if !self.ime {
+            return 0;
+        }
+        self.ime = false;
+
+        let interrupt = Interrupt::from_bits_truncate(request);
+        self.mmu.interrupt_flag.set(interrupt, false);
+        match interrupt {
+            Interrupt::VBLANK => self._call(0x0040),
+            Interrupt::LCD_STAT => self._call(0x0048),
+            Interrupt::TIMER => self._call(0x0050),
+            Interrupt::SERIAL => self._call(0x0080),
+            Interrupt::JOYPAD => self._call(0x0070),
+            _ => unreachable!("Invalid interrupt request: {:?}", interrupt),
+        };
+        16
     }
 
     fn fetch_byte(&mut self) -> u8 {
@@ -149,49 +215,58 @@ impl CPU {
     fn execute(&mut self, opcode: u8) -> u32 {
         match opcode {
             // loads
-            0x01 | 0x11 | 0x21 | 0x31 => self.ld_n_nn(opcode),
-            0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.ld_nn_n(opcode),
-            0x40..=0x46 | 0x48..=0x4e | 0x50..=0x56 | 0x58..=0x5e => self.ld_r_r(opcode),
-            0x60..=0x66 | 0x68..=0x6e | 0x70..=0x75 => self.ld_r_r(opcode),
-            0x78..=0x7f => self.ld_a_r(opcode),
-            0x0a | 0x1a => self.ld_a_rp(opcode),
-            0xfa => self.ld_a_nn(),
-            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 => self.ld_r_a(opcode),
-            0x02 | 0x12 => self.ld_rp_a(opcode),
-            0xea => self.ld_nn_a(),
-            0xe2 => self.ld_c_a(),
-            0xf2 => self.ld_a_c(),
-            0xe0 => self.ldh_n_a(),
-            0xf0 => self.ldh_a_n(),
+            0x01 | 0x11 | 0x21 | 0x31 => self.ld_r16_d16(opcode),
+            0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.ld_r8_d8(opcode),
+
+            0x40..=0x46 | 0x48..=0x4e | 0x50..=0x56 | 0x58..=0x5e => self.ld_r8_r8(opcode),
+            0x60..=0x66 | 0x68..=0x6e | 0x70..=0x75 => self.ld_r8_r8(opcode),
+            0x78..=0x7f => self.ld_a_r8(opcode),
+            0x47 | 0x4f | 0x57 | 0x5f | 0x67 | 0x6f | 0x77 => self.ld_r8_a(opcode),
+
+            0x02 | 0x12 => self.ld_r16_a(opcode),
+            0x0a | 0x1a => self.ld_a_r16(opcode),
+
+            0xfa => self.ld_a_d16(),
+            0xea => self.ld_d16_a(),
+
+            0xe0 => self.ldh_d8_a(),
+            0xf0 => self.ldh_a_d8(),
+            0xe2 => self.ldh_c_a(),
+            0xf2 => self.ldh_a_c(),
+
             0x22 => self.ldi_hl_a(),
             0x2a => self.ldi_a_hl(),
             0x32 => self.ldd_hl_a(),
             0x3a => self.ldd_a_hl(),
-            0xf8 => self.ldhl_sp_n(),
+
+            0x08 => self.ld_d16_sp(),
+            0xf8 => self.ld_hl_sp_d8(),
             0xf9 => self.ld_sp_hl(),
-            0x08 => self.ld_nn_sp(),
-            0xc1 | 0xd1 | 0xe1 | 0xf1 => self.pop_rp2(opcode),
-            0xc5 | 0xd5 | 0xe5 | 0xf5 => self.push_rp2(opcode),
+            0xc1 | 0xd1 | 0xe1 | 0xf1 => self.pop(opcode),
+            0xc5 | 0xd5 | 0xe5 | 0xf5 => self.push(opcode),
 
             // arithmetic
-            0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_rp(opcode),
-            0xe8 => self.add_sp_n(),
-            0x88..=0x8f => self.adc_a_r(opcode),
-            0xce => self.adc_a_n(),
-            0x80..=0x87 => self.add_a_r(opcode),
-            0xc6 => self.add_a_n(),
-            0xa0..=0xa7 => self.and_r(opcode),
-            0xe6 => self.and_n(),
-            0x90..=0x97 => self.sub_r(opcode),
-            0xd6 => self.sub_n(),
-            0x98..=0x9f => self.sbc_a_r(opcode),
-            0xde => self.sbc_a_n(),
-            0xb0..=0xb7 => self.or_r(opcode),
-            0xf6 => self.or_n(),
-            0xa8..=0xaf => self.xor_r(opcode),
-            0xee => self.xor_n(),
-            0xb8..=0xbf => self.cp_r(opcode),
-            0xfe => self.cp_n(),
+            0x09 | 0x19 | 0x29 | 0x39 => self.add_hl(opcode),
+            0xe8 => self.add_sp(),
+
+            0x80..=0x87 => self.add(opcode),
+            0x88..=0x8f => self.adc(opcode),
+            0x90..=0x97 => self.sub(opcode),
+            0x98..=0x9f => self.sbc(opcode),
+            0xa0..=0xa7 => self.and(opcode),
+            0xa8..=0xaf => self.xor(opcode),
+            0xb0..=0xb7 => self.or(opcode),
+            0xb8..=0xbf => self.cp(opcode),
+
+            0xc6 => self.add_d8(),
+            0xce => self.adc_d8(),
+            0xd6 => self.sub_d8(),
+            0xde => self.sbc_d8(),
+            0xe6 => self.and_d8(),
+            0xee => self.xor_d8(),
+            0xf6 => self.or_d8(),
+            0xfe => self.cp_d8(),
+
             0x04 | 0x0c | 0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inc8(opcode),
             0x05 | 0x0d | 0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dec8(opcode),
             0x03 | 0x13 | 0x23 | 0x33 => self.inc16(opcode),
@@ -211,25 +286,25 @@ impl CPU {
             0x20 | 0x28 | 0x30 | 0x38 => self.jr_cc_n(opcode),
 
             // calls
-            0xc4 | 0xcc | 0xd4 | 0xdc => self.call_cc_nn(opcode),
-            0xcd => self.call_nn(),
+            0xc4 | 0xcc | 0xd4 | 0xdc => self.call_cc(opcode),
+            0xcd => self.call(),
 
             // restarts
             0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => self.rst(opcode),
 
             // returns
+            0xc0 | 0xc8 | 0xd0 | 0xd8 => self.ret_cc(opcode),
             0xc9 => self.ret(),
             0xd9 => self.reti(),
-            0xc0 | 0xc8 | 0xd0 | 0xd8 => self.ret_cc(opcode),
 
             // miscellaneous
-            0x27 => self.dda(),
-            0x3f => self.ccf(),
-            0x2f => self.cpl(),
             0x00 => 4, // nop
-            0x76 => self.halt(),
             0x10 => 4, // stop
+            0x27 => self.dda(),
+            0x2f => self.cpl(),
             0x37 => self.scf(),
+            0x3f => self.ccf(),
+            0x76 => self.halt(),
             0xf3 => self.di(),
             0xfb => self.ei(),
 
@@ -258,14 +333,14 @@ impl CPU {
         }
     }
 
-    fn ld_n_nn(&mut self, opcode: u8) -> u32 {
+    fn ld_r16_d16(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.fetch_word();
         self.write_rp(p, nn);
         12
     }
 
-    fn ld_nn_n(&mut self, opcode: u8) -> u32 {
+    fn ld_r8_d8(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         let n = self.fetch_byte();
         self.write_r(y, n);
@@ -275,7 +350,7 @@ impl CPU {
         }
     }
 
-    fn ld_r_r(&mut self, opcode: u8) -> u32 {
+    fn ld_r8_r8(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let y = (opcode & 0b_0011_1000) >> 3;
         let v = self.read_r(z);
@@ -288,7 +363,7 @@ impl CPU {
         }
     }
 
-    fn ld_a_r(&mut self, opcode: u8) -> u32 {
+    fn ld_a_r8(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self.register.a = n;
@@ -298,20 +373,20 @@ impl CPU {
         }
     }
 
-    fn ld_a_rp(&mut self, opcode: u8) -> u32 {
+    fn ld_a_r16(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp(p);
         self.register.a = self.mmu.read_byte(nn);
         8
     }
 
-    fn ld_a_nn(&mut self) -> u32 {
+    fn ld_a_d16(&mut self) -> u32 {
         let nn = self.fetch_word();
         self.register.a = self.mmu.read_byte(nn);
         16
     }
 
-    fn ld_r_a(&mut self, opcode: u8) -> u32 {
+    fn ld_r8_a(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         self.write_r(y, self.register.a);
         match y {
@@ -320,39 +395,39 @@ impl CPU {
         }
     }
 
-    fn ld_rp_a(&mut self, opcode: u8) -> u32 {
+    fn ld_r16_a(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp(p);
         self.mmu.write_byte(nn, self.register.a);
         8
     }
 
-    fn ld_nn_a(&mut self) -> u32 {
+    fn ld_d16_a(&mut self) -> u32 {
         let nn = self.fetch_word();
         self.mmu.write_byte(nn, self.register.a);
         16
     }
 
-    fn ld_c_a(&mut self) -> u32 {
+    fn ldh_c_a(&mut self) -> u32 {
         let addr = 0xff00 | (self.register.c as u16);
         self.mmu.write_byte(addr, self.register.a);
         8
     }
 
-    fn ld_a_c(&mut self) -> u32 {
+    fn ldh_a_c(&mut self) -> u32 {
         let addr = 0xff00 | (self.register.c as u16);
         let n = self.mmu.read_byte(addr);
         self.register.a = n;
         8
     }
 
-    fn ldh_n_a(&mut self) -> u32 {
+    fn ldh_d8_a(&mut self) -> u32 {
         let n = self.fetch_byte();
         self.mmu.write_byte(0xff00 | (n as u16), self.register.a);
         12
     }
 
-    fn ldh_a_n(&mut self) -> u32 {
+    fn ldh_a_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self.register.a = self.mmu.read_byte(0xff00 | (n as u16));
         12
@@ -392,7 +467,7 @@ impl CPU {
         8
     }
 
-    fn ldhl_sp_n(&mut self) -> u32 {
+    fn ld_hl_sp_d8(&mut self) -> u32 {
         let n = self.fetch_byte() as i8;
         let v = n as u16;
         let h = (self.register.sp & 0x0f) + (v & 0x0f) > 0x0f;
@@ -406,27 +481,27 @@ impl CPU {
         12
     }
 
-    fn ld_nn_sp(&mut self) -> u32 {
+    fn ld_d16_sp(&mut self) -> u32 {
         let nn = self.fetch_word();
         self.mmu.write_word(nn, self.register.sp);
         20
     }
 
-    fn push_rp2(&mut self, opcode: u8) -> u32 {
+    fn push(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp2(p);
         self.push_stack(nn);
         16
     }
 
-    fn pop_rp2(&mut self, opcode: u8) -> u32 {
+    fn pop(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.pop_stack();
         self.write_rp2(p, nn);
         12
     }
 
-    fn add_hl_rp(&mut self, opcode: u8) -> u32 {
+    fn add_hl(&mut self, opcode: u8) -> u32 {
         let p = (opcode & 0b_0011_0000) >> 4;
         let nn = self.read_rp(p);
         let hl = self.register.read_word(HL);
@@ -441,7 +516,7 @@ impl CPU {
         8
     }
 
-    fn add_sp_n(&mut self) -> u32 {
+    fn add_sp(&mut self) -> u32 {
         let n = self.fetch_byte() as i8;
         let v = n as u16;
         let h = (self.register.sp & 0x0f) + (v & 0x0f) > 0x0f;
@@ -471,13 +546,13 @@ impl CPU {
         self.register.set_flag(Flags::C, c);
     }
 
-    fn adc_a_n(&mut self) -> u32 {
+    fn adc_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._adc(n);
         8
     }
 
-    fn adc_a_r(&mut self, opcode: u8) -> u32 {
+    fn adc(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._adc(n);
@@ -498,7 +573,7 @@ impl CPU {
         self.register.set_flag(Flags::C, c);
     }
 
-    fn add_a_r(&mut self, opcode: u8) -> u32 {
+    fn add(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._add(n);
@@ -508,7 +583,7 @@ impl CPU {
         }
     }
 
-    fn add_a_n(&mut self) -> u32 {
+    fn add_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._add(n);
         8
@@ -523,7 +598,7 @@ impl CPU {
         self.register.set_flag(Flags::C, false);
     }
 
-    fn and_r(&mut self, opcode: u8) -> u32 {
+    fn and(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._and(n);
@@ -533,7 +608,7 @@ impl CPU {
         }
     }
 
-    fn and_n(&mut self) -> u32 {
+    fn and_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._and(n);
         8
@@ -550,7 +625,7 @@ impl CPU {
         self.register.set_flag(Flags::C, c);
     }
 
-    fn sub_r(&mut self, opcode: u8) -> u32 {
+    fn sub(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._sub(n);
@@ -560,7 +635,7 @@ impl CPU {
         }
     }
 
-    fn sub_n(&mut self) -> u32 {
+    fn sub_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._sub(n);
         8
@@ -583,7 +658,7 @@ impl CPU {
         self.register.set_flag(Flags::C, c);
     }
 
-    fn sbc_a_r(&mut self, opcode: u8) -> u32 {
+    fn sbc(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._sbc(n);
@@ -593,7 +668,7 @@ impl CPU {
         }
     }
 
-    fn sbc_a_n(&mut self) -> u32 {
+    fn sbc_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._sbc(n);
         8
@@ -608,7 +683,7 @@ impl CPU {
         self.register.set_flag(Flags::C, false);
     }
 
-    fn or_r(&mut self, opcode: u8) -> u32 {
+    fn or(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._or(n);
@@ -618,7 +693,7 @@ impl CPU {
         }
     }
 
-    fn or_n(&mut self) -> u32 {
+    fn or_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._or(n);
         8
@@ -633,7 +708,7 @@ impl CPU {
         self.register.set_flag(Flags::C, false);
     }
 
-    fn xor_r(&mut self, opcode: u8) -> u32 {
+    fn xor(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._xor(n);
@@ -643,7 +718,7 @@ impl CPU {
         }
     }
 
-    fn xor_n(&mut self) -> u32 {
+    fn xor_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._xor(n);
         8
@@ -657,7 +732,7 @@ impl CPU {
         self.register.set_flag(Flags::C, a < n);
     }
 
-    fn cp_r(&mut self, opcode: u8) -> u32 {
+    fn cp(&mut self, opcode: u8) -> u32 {
         let z = opcode & 0b_0000_0111;
         let n = self.read_r(z);
         self._cp(n);
@@ -667,7 +742,7 @@ impl CPU {
         }
     }
 
-    fn cp_n(&mut self) -> u32 {
+    fn cp_d8(&mut self) -> u32 {
         let n = self.fetch_byte();
         self._cp(n);
         8
@@ -972,7 +1047,7 @@ impl CPU {
         self.register.pc = addr;
     }
 
-    fn call_cc_nn(&mut self, opcode: u8) -> u32 {
+    fn call_cc(&mut self, opcode: u8) -> u32 {
         let y = (opcode & 0b_0011_1000) >> 3;
         let cc = self.read_cc(y);
         let addr = self.fetch_word();
@@ -984,7 +1059,7 @@ impl CPU {
         }
     }
 
-    fn call_nn(&mut self) -> u32 {
+    fn call(&mut self) -> u32 {
         let addr = self.fetch_word();
         self._call(addr);
         24
@@ -1000,13 +1075,6 @@ impl CPU {
     fn ret(&mut self) -> u32 {
         let nn = self.pop_stack();
         self.register.pc = nn;
-        16
-    }
-
-    fn reti(&mut self) -> u32 {
-        let nn = self.pop_stack();
-        self.register.pc = nn;
-        self.ime = true;
         16
     }
 
@@ -1066,9 +1134,7 @@ impl CPU {
     }
 
     fn halt(&mut self) -> u32 {
-        if self.ime {
-            self.halted = true;
-        }
+        self.halted = true;
         4
     }
 
@@ -1080,12 +1146,19 @@ impl CPU {
     }
 
     fn di(&mut self) -> u32 {
-        self.ime = false;
+        self.di = 2;
         4
     }
 
     fn ei(&mut self) -> u32 {
-        self.ime = true;
+        self.ei = 2;
         4
+    }
+
+    fn reti(&mut self) -> u32 {
+        let nn = self.pop_stack();
+        self.register.pc = nn;
+        self.ei = 1;
+        16
     }
 }

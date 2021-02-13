@@ -17,25 +17,15 @@ pub struct MMU {
     hram: [u8; HIGH_RAM_SIZE],
     pub ppu: PPU,
     apu: APU,
-    interrupt_enable: IE,
-    interrupt_flag: IF,
+    pub interrupt_enable: Interrupt,
+    pub interrupt_flag: Interrupt,
     serial: Serial,
     timer: Timer,
     joypad: JoyPad,
 }
 
 bitflags!(
-    struct IE: u8 {
-        const VBLANK   = 0b_0000_0001;
-        const LCD_STAT = 0b_0000_0010;
-        const TIMER    = 0b_0000_0100;
-        const SERIAL   = 0b_0000_1000;
-        const JOYPAD   = 0b_0001_0000;
-    }
-);
-
-bitflags!(
-    struct IF: u8 {
+    pub struct Interrupt: u8 {
         const VBLANK   = 0b_0000_0001;
         const LCD_STAT = 0b_0000_0010;
         const TIMER    = 0b_0000_0100;
@@ -52,8 +42,8 @@ impl MMU {
             hram: [0; HIGH_RAM_SIZE],
             ppu: PPU::new(),
             apu: APU::new(),
-            interrupt_enable: IE::empty(),
-            interrupt_flag: IF::empty(),
+            interrupt_enable: Interrupt::empty(),
+            interrupt_flag: Interrupt::empty(),
             serial: Serial::new(),
             timer: Timer::new(),
             joypad: JoyPad::new(),
@@ -62,6 +52,22 @@ impl MMU {
 
     pub fn run(&mut self, tick: u32) {
         self.ppu.run(tick);
+        self.timer.run(tick);
+
+        if self.ppu.interrupt_vblank {
+            self.interrupt_flag.set(Interrupt::VBLANK, true);
+            self.ppu.interrupt_vblank = false;
+        }
+
+        if self.ppu.interrupt_lcdc {
+            self.interrupt_flag.set(Interrupt::LCD_STAT, true);
+            self.ppu.interrupt_lcdc = false;
+        }
+
+        if self.timer.interrupt {
+            self.interrupt_flag.set(Interrupt::TIMER, true);
+            self.timer.interrupt = false;
+        }
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
@@ -114,7 +120,7 @@ impl MMU {
             0xff00 => self.joypad.write_byte(addr, v),
             0xff01..=0xff02 => self.serial.write_byte(addr, v),
             0xff04..=0xff07 => self.timer.write_byte(addr, v),
-            0xff0f => self.interrupt_flag = IF::from_bits_truncate(v),
+            0xff0f => self.interrupt_flag = Interrupt::from_bits_truncate(v),
             0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
                 return; // TODO
                 unimplemented!("write: I/O register: {:04x} {:02x}", addr, v)
@@ -125,7 +131,7 @@ impl MMU {
             0xff50 => self.cartridge.bios_disable = v != 0,
             0xff7f => (), // unused
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
-            0xffff..=0xffff => self.interrupt_enable = IE::from_bits_truncate(v),
+            0xffff..=0xffff => self.interrupt_enable = Interrupt::from_bits_truncate(v),
             _ => unreachable!("write: not support the address: {:04x} {:02x}", addr, v),
         }
     }
