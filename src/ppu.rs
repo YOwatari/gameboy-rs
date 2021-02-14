@@ -410,28 +410,25 @@ impl PPU {
 
             for sprite in sprites.iter() {
                 let mut line = if sprite.flags.contains(SpriteFlags::FLIP_Y) {
-                    size - 1 - (self.ly.wrapping_sub(sprite.y) & 0x07)
+                    7 - (self.ly.wrapping_sub(sprite.y) & 0x07)
                 } else {
-                    (self.ly.wrapping_sub(sprite.y)) & 0x07
-                };
-                if line >= 8 {
-                    line -= 8;
-                }
+                    self.ly.wrapping_sub(sprite.y) & 0x07
+                } as u16;
                 line *= 2;
-                let tile_addr = sprite.tile_number << 4;
-                let data0 = self.vram[(tile_addr | line) as usize & 0x1fff];
-                let data1 = self.vram[(tile_addr | (line + 1)) as usize & 0x1fff];
+                let tile_addr = (sprite.tile_number << 4) as u16;
+                let data0 = self.vram[((tile_addr | line) & 0x1fff) as usize];
+                let data1 = self.vram[((tile_addr | (line + 1)) & 0x1fff) as usize];
 
                 let palette = if sprite.flags.contains(SpriteFlags::PALETTE) {
                     self.obp1
                 } else {
                     self.obp0
                 };
-                for x in (0..7).rev() {
+                for x in (0..8).rev() {
                     let color_mask = if sprite.flags.contains(SpriteFlags::FLIP_X) {
-                        0b_0111 - (x & 0b_0111)
+                        7 - (x & 0x07)
                     } else {
-                        x & 0b_0111
+                        x & 0x07
                     } as usize;
                     let color_num =
                         (((data0 >> color_mask) & 1) << 1) | ((data1 >> color_mask) & 1);
