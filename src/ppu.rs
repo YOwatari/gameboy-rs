@@ -1,15 +1,17 @@
 use bitflags::bitflags;
+use std::cmp::Ordering;
+use std::env::split_paths;
 use std::fmt;
 
 const VRAM_SIZE: usize = 8 * 1024;
-const OAM_SIZE: usize = 160;
+pub const OAM_SIZE: usize = 160;
 pub const SCREEN_WIDTH: usize = 160;
 pub const SCREEN_HEIGHT: usize = 144;
 pub const SCREEN_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 pub struct PPU {
-    pub vram: [u8; VRAM_SIZE],
-    oam: [u8; OAM_SIZE],
+    vram: [u8; VRAM_SIZE],
+    pub oam: [u8; OAM_SIZE],
     mode: Mode,
     bgp: u8,
     obp0: u8,
@@ -52,6 +54,23 @@ bitflags!(
         const VBLANK_MODE      = 0b_0000_0001;
         const ACCESS_OAM_MODE  = 0b_0000_0010;
         const ACCESS_VRAM_MODE = 0b_0000_0011;
+    }
+);
+
+struct Sprite {
+    addr: usize,
+    y: u8,
+    x: u8,
+    tile_number: u8,
+    flags: SpriteFlags,
+}
+
+bitflags!(
+    struct SpriteFlags: u8 {
+        const PRIORITY = 0b_1000_0000;
+        const FLIP_Y   = 0b_0100_0000;
+        const FLIP_X   = 0b_0010_0000;
+        const PALETTE  = 0b_0001_0000;
     }
 );
 
@@ -116,12 +135,12 @@ impl PPU {
                 if self.clocks >= 80 {
                     self.clocks -= 80;
                     self.mode = Mode::AccessVRAM;
+                    self.render_line();
                 }
             }
             Mode::AccessVRAM => {
                 if self.clocks >= 172 {
                     self.clocks -= 172;
-                    self.render_line();
                     self.mode = Mode::HBlank;
                     self.check_interrupt();
                 }
@@ -162,9 +181,9 @@ impl PPU {
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x8000..=0x9fff => {
-                /*if self.mode == Mode::AccessVRAM {
+                if self.mode == Mode::AccessVRAM {
                     return 0xff;
-                }*/
+                }
                 self.vram[(addr & (VRAM_SIZE as u16 - 1)) as usize]
             }
             0xfe00..=0xfe9f => {
@@ -200,7 +219,7 @@ impl PPU {
                 if self.mode != Mode::HBlank && self.mode != Mode::VBlank {
                     return;
                 }
-                self.oam[(addr & (OAM_SIZE as u16 - 1)) as usize] = v;
+                self.oam[(addr & 0x00ff) as usize] = v;
             }
             0xff40 => {
                 let val = Control::from_bits_truncate(v);
@@ -240,16 +259,37 @@ impl PPU {
         self.control.contains(Control::LCD_ENABLE)
     }
 
+    fn palette_color(palette: u8, number: u8) -> u32 {
+        match (palette >> (number << 1)) & 0b_0011 {
+            0 => 0xffffff, // while
+            1 => 0xaaaaaa, // light gray
+            2 => 0x555555, // dark gray
+            3 => 0x000000, // black
+            _ => 0xffffff,
+        }
+    }
+
+    fn tile_addr(control: Control, number: u8) -> usize {
+        if control.contains(Control::BG_WINDOW_TILE) {
+            // block0: 0x0000-0x07ff block1: 0x0800-0x0fff
+            (((number as i8 as i16) << 4) as u16 & 0x0fff) as usize
+        } else {
+            // block2: 0x1000-0x17ff block1: 0x0800-0x0fff
+            0x1000_u16.wrapping_add(((number as i8 as i16) << 4) as u16) as usize
+        }
+    }
+
     fn render_line(&mut self) {
         let start = SCREEN_WIDTH * (self.ly as usize);
         let end = start + SCREEN_WIDTH;
         let pixels = &mut self.frame_buffer[start..end];
+        let mut priority = [false; SCREEN_WIDTH];
 
         if self.control.contains(Control::BG_ENABLE) {
             let tile_map_addr_base = if self.control.contains(Control::BG_TILE_MAP) {
-                0x1c00 // 0x1c00-0x1fff 32x32 bytes
+                0x1c00 // 0x1c00-0x1fff
             } else {
-                0x1800 // 0x1800-0x1bff 32x32 bytes
+                0x1800 // 0x1800-0x1bff
             };
 
             let y = self.ly.wrapping_add(self.scy);
@@ -260,13 +300,7 @@ impl PPU {
                 let col = (x / 8) as usize;
 
                 let tile_number = self.vram[((row * 32 + col) | tile_map_addr_base) & 0x1fff];
-                let tile_addr = if self.control.contains(Control::BG_WINDOW_TILE) {
-                    // block0: 0x0000-0x07ff block1: 0x0800-0x0fff
-                    (((tile_number as i8 as i16) << 4) as u16 & 0x0fff) as usize
-                } else {
-                    // block2: 0x1000-0x17ff block1: 0x0800-0x0fff
-                    0x1000_u16.wrapping_add(((tile_number as i8 as i16) << 4) as u16) as usize
-                };
+                let tile_addr = PPU::tile_addr(self.control, tile_number);
 
                 let line = ((y % 8) * 2) as usize;
                 let data0 = self.vram[(tile_addr | line) & 0x1fff];
@@ -274,20 +308,145 @@ impl PPU {
 
                 let color_mask = (0b_0111 - (x & 0b_0111)) as usize;
                 let color_num = (((data0 >> color_mask) & 1) << 1) | ((data1 >> color_mask) & 1);
-                let color = match (self.bgp >> (color_num << 1)) & 0b_0011 {
-                    0 => 0xffffff, // while
-                    1 => 0xaaaaaa, // light gray
-                    2 => 0x555555, // dark gray
-                    3 => 0x000000, // black
-                    _ => 0xffffff,
-                };
+                let color = PPU::palette_color(self.bgp, color_num);
 
+                priority[i as usize] = color_num != 0;
+                pixels[i as usize] = color;
+            }
+        }
+
+        if self.control.contains(Control::WINDOW_ENABLE) && self.wy <= self.ly {
+            let tile_map_addr_base = if self.control.contains(Control::WINDOW_TILE_MAP) {
+                0x1c00 // 0x1c00-0x1fff
+            } else {
+                0x1800 // 0x1800-0x1bff
+            };
+            let wx = self.wx.wrapping_add(7);
+
+            let y = self.ly - self.wy;
+            let row = (y / 8) as usize;
+            for i in wx..SCREEN_WIDTH as u8 {
+                let mut x = i.wrapping_add(self.scx);
+                if x >= wx {
+                    x = i - wx;
+                }
+                let col = (x / 8) as usize;
+
+                let tile_number = self.vram[((row * 32 + col) | tile_map_addr_base) & 0x1fff];
+                let tile_addr = PPU::tile_addr(self.control, tile_number);
+
+                let line = ((y % 8) * 2) as usize;
+                let data0 = self.vram[(tile_addr | line) & 0x1fff];
+                let data1 = self.vram[(tile_addr | (line + 1)) & 0x1fff];
+
+                let color_mask = (0b_0111 - (x & 0b_0111)) as usize;
+                let color_num = (((data0 >> color_mask) & 1) << 1) | ((data1 >> color_mask) & 1);
+                let color = PPU::palette_color(self.bgp, color_num);
+
+                priority[i as usize] = color_num != 0;
                 pixels[i as usize] = color;
             }
         }
 
         if self.control.contains(Control::OBJ_ENABLE) {
-            // TODO
+            let size: u8 = if self.control.contains(Control::OBJ_SIZE) {
+                16
+            } else {
+                8
+            };
+
+            // load sprites on line
+            let mut sprite_num = 0;
+            let mut sprites: Vec<Sprite> = Vec::with_capacity(10);
+            for i in 0..(OAM_SIZE / 4) {
+                let addr = i << 2;
+                let mut sprite = Sprite {
+                    addr,
+                    y: self.oam[addr].wrapping_sub(16),
+                    x: self.oam[addr + 1].wrapping_sub(8),
+                    tile_number: 0,
+                    flags: SpriteFlags::from_bits_truncate(self.oam[addr + 3]),
+                };
+
+                if self.ly.wrapping_sub(sprite.y) > size {
+                    // not on line
+                    continue;
+                }
+
+                sprite_num += 1;
+                if sprite_num > 10 {
+                    // 10 sprite on 1 line
+                    break;
+                }
+
+                if sprite.x == 0 || SCREEN_WIDTH as u8 - 1 < sprite.x {
+                    // out of screen
+                    continue;
+                }
+
+                sprite.tile_number = if self.control.contains(Control::OBJ_SIZE) {
+                    // 8x16
+                    if (self.ly < sprite.y) ^ sprite.flags.contains(SpriteFlags::FLIP_Y) {
+                        self.oam[addr + 2] & 0xfe
+                    } else {
+                        self.oam[addr + 2] | 0x01
+                    }
+                } else {
+                    // 8x8
+                    self.oam[addr + 2]
+                };
+                sprites.push(sprite);
+            }
+
+            // sprites priority
+            sprites.sort_by(|a, b| {
+                match a.x.cmp(&b.x) {
+                    // low index
+                    Ordering::Equal => a.addr.cmp(&b.addr).reverse(),
+                    // low x
+                    other => other.reverse(),
+                }
+            });
+
+            for sprite in sprites.iter() {
+                let mut line = if sprite.flags.contains(SpriteFlags::FLIP_Y) {
+                    size - 1 - (self.ly.wrapping_sub(sprite.y) & 0x07)
+                } else {
+                    (self.ly.wrapping_sub(sprite.y)) & 0x07
+                };
+                if line >= 8 {
+                    line -= 8;
+                }
+                line *= 2;
+                let tile_addr = sprite.tile_number << 4;
+                let data0 = self.vram[(tile_addr | line) as usize & 0x1fff];
+                let data1 = self.vram[(tile_addr | (line + 1)) as usize & 0x1fff];
+
+                let palette = if sprite.flags.contains(SpriteFlags::PALETTE) {
+                    self.obp1
+                } else {
+                    self.obp0
+                };
+                for x in (0..7).rev() {
+                    let color_mask = if sprite.flags.contains(SpriteFlags::FLIP_X) {
+                        0b_0111 - (x & 0b_0111)
+                    } else {
+                        x & 0b_0111
+                    } as usize;
+                    let color_num =
+                        (((data0 >> color_mask) & 1) << 1) | ((data1 >> color_mask) & 1);
+                    let color = PPU::palette_color(palette, color_num);
+                    let target = sprite.x.wrapping_add(7 - x) - 1;
+
+                    if color_num == 0 {
+                        continue;
+                    }
+                    if sprite.flags.contains(SpriteFlags::PRIORITY) && priority[target as usize] {
+                        continue;
+                    }
+                    pixels[target as usize] = color;
+                }
+            }
         }
     }
 }

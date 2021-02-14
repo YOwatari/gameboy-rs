@@ -2,7 +2,6 @@ use log::info;
 
 pub struct Cartridge {
     bios: Vec<u8>,
-    pub bios_disable: bool,
     rom: Vec<u8>,
     rom_banks: u8,
     rom_bank_number_hi: u8,
@@ -17,10 +16,10 @@ impl Cartridge {
         info!("MBC type: {:02x}", rom[0x147]);
         let ram_size: usize = match rom[0x0149] {
             0 => 0,
-            1 => 2 * 1024,   // 1
-            2 => 8 * 1024,   // 1
-            3 => 32 * 1024,  // 4
-            4 => 128 * 1024, // 16
+            1 => 2 * 1024,
+            2 => 8 * 1024,
+            3 => 32 * 1024,
+            4 => 128 * 1024,
             _ => unreachable!("RAM size is invalid: {:02x}", rom[0x0149]),
         };
         let rom_banks: u8 = match rom[0x0148] {
@@ -36,7 +35,6 @@ impl Cartridge {
 
         Cartridge {
             bios: Vec::<u8>::new(),
-            bios_disable: true,
             rom,
             rom_banks,
             rom_bank_number_hi: 0,
@@ -49,7 +47,6 @@ impl Cartridge {
 
     pub fn load_bios(&mut self, bios: Vec<u8>) {
         self.bios = bios;
-        self.bios_disable = false;
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
@@ -78,7 +75,7 @@ impl Cartridge {
 
     pub fn write_byte(&mut self, addr: u16, v: u8) {
         match addr {
-            // RAM bank 00
+            // RAM enable
             0x0000..=0x1fff => self.ram_enable = v & 0x0f == 0x0a,
             // ROM bank number(lower 5 bit)
             0x2000..=0x3fff => self.rom_bank_number_lo = v & 0x1f,

@@ -4,7 +4,7 @@ use std::fmt;
 use crate::apu::APU;
 use crate::cartridge::Cartridge;
 use crate::joypad::JoyPad;
-use crate::ppu::PPU;
+use crate::ppu::{OAM_SIZE, PPU};
 use crate::serial::Serial;
 use crate::timer::Timer;
 
@@ -70,6 +70,14 @@ impl MMU {
         }
     }
 
+    fn dma_transfer(&mut self, v: u8) {
+        let src = (v as u16) << 8;
+        for i in 0..OAM_SIZE as u16 {
+            let b = self.read_byte(src | i);
+            self.write_byte(0xfe00 | i, b);
+        }
+    }
+
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7fff => self.cartridge.read_byte(addr),
@@ -91,14 +99,8 @@ impl MMU {
             }
             0xff10..=0xff3f => self.apu.read_byte(addr),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.read_byte(addr),
-            0xff46 => 0xff, // TODO unimplemented!("read: I/O register: {:x}", addr),
-            0xff50 => {
-                if self.cartridge.bios_disable {
-                    1
-                } else {
-                    0
-                }
-            }
+            0xff46 => 0xff,
+            0xff50 => panic!("BIOS DISABLE"),
             0xff7f => 0xff, // unused
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize],
             0xffff..=0xffff => self.interrupt_enable.bits,
@@ -127,8 +129,8 @@ impl MMU {
             }
             0xff10..=0xff3f => self.apu.write_byte(addr, v),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.write_byte(addr, v),
-            0xff46 => (), // TODO unimplemented!("write: I/O register: {:04x} {:02x}", addr, v),
-            0xff50 => self.cartridge.bios_disable = v != 0,
+            0xff46 => self.dma_transfer(v),
+            0xff50 => panic!("BIOS DISABLE"),
             0xff7f => (), // unused
             0xff80..=0xfffe => self.hram[(addr & (HIGH_RAM_SIZE as u16 - 1)) as usize] = v,
             0xffff..=0xffff => self.interrupt_enable = Interrupt::from_bits_truncate(v),
