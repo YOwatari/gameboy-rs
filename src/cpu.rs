@@ -34,6 +34,7 @@ impl CPU {
         self.register.write_word(HL, 0x014d);
         self.register.sp = 0xfffe;
         self.register.pc = 0x0100;
+        self.mmu.init();
     }
 
     pub fn run(&mut self) -> u32 {

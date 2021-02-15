@@ -74,7 +74,7 @@ bitflags!(
     }
 );
 
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 enum Mode {
     HBlank,
     VBlank,
@@ -128,6 +128,9 @@ impl PPU {
     }
 
     pub fn run(&mut self, tick: u32) {
+        if !self.control.contains(Control::LCD_ENABLE) {
+            return;
+        }
         self.clocks += tick;
 
         match self.mode {
@@ -226,12 +229,11 @@ impl PPU {
                 if self.control.contains(Control::LCD_ENABLE) != val.contains(Control::LCD_ENABLE) {
                     self.ly = 0;
                     self.clocks = 0;
-                    let mode = if val.contains(Control::LCD_ENABLE) {
-                        Stat::ACCESS_OAM_MODE
+                    self.mode = if val.contains(Control::LCD_ENABLE) {
+                        Mode::AccessOAM
                     } else {
-                        Stat::HBLANK_MODE
+                        Mode::HBlank
                     };
-                    self.stat.insert(mode);
                     self.check_interrupt();
                 }
                 self.control = val;

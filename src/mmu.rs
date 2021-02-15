@@ -50,6 +50,40 @@ impl MMU {
         }
     }
 
+    pub fn init(&mut self) {
+        self.write_byte(0xff05, 0x00);
+        self.write_byte(0xff06, 0x00);
+        self.write_byte(0xff07, 0x00);
+        self.write_byte(0xff10, 0x80);
+        self.write_byte(0xff11, 0xbf);
+        self.write_byte(0xff12, 0xf3);
+        self.write_byte(0xff14, 0xbf);
+        self.write_byte(0xff16, 0x3f);
+        self.write_byte(0xff17, 0x00);
+        self.write_byte(0xff19, 0xbf);
+        self.write_byte(0xff1a, 0x7f);
+        self.write_byte(0xff1b, 0xff);
+        self.write_byte(0xff1c, 0x9f);
+        self.write_byte(0xff1e, 0xbf);
+        self.write_byte(0xff20, 0xff);
+        self.write_byte(0xff21, 0x00);
+        self.write_byte(0xff22, 0x00);
+        self.write_byte(0xff23, 0xbf);
+        self.write_byte(0xff24, 0x77);
+        self.write_byte(0xff25, 0xf3);
+        self.write_byte(0xff26, 0xf1);
+        self.write_byte(0xff40, 0x91);
+        self.write_byte(0xff42, 0x00);
+        self.write_byte(0xff43, 0x00);
+        self.write_byte(0xff45, 0x00);
+        self.write_byte(0xff47, 0xfc);
+        self.write_byte(0xff48, 0xff);
+        self.write_byte(0xff49, 0xff);
+        self.write_byte(0xff4a, 0x00);
+        self.write_byte(0xff4b, 0x00);
+        self.write_byte(0xffff, 0x00);
+    }
+
     pub fn run(&mut self, tick: u32) {
         self.ppu.run(tick);
         self.timer.run(tick);
@@ -93,10 +127,10 @@ impl MMU {
             0xff01..=0xff02 => self.serial.read_byte(addr),
             0xff04..=0xff07 => self.timer.read_byte(addr),
             0xff0f => self.interrupt_flag.bits,
-            0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
-                return 0xff; // TODO
+            0xff03 | 0xff08..=0xff0e | 0xff4c | 0xff4e..=0xff4f | 0xff51..=0xff7e => {
                 unimplemented!("read: I/O register: {:x}", addr)
             }
+            0xff4d => 0xff, // CGB register
             0xff10..=0xff3f => self.apu.read_byte(addr),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.read_byte(addr),
             0xff46 => 0xff,
@@ -123,10 +157,10 @@ impl MMU {
             0xff01..=0xff02 => self.serial.write_byte(addr, v),
             0xff04..=0xff07 => self.timer.write_byte(addr, v),
             0xff0f => self.interrupt_flag = Interrupt::from_bits_truncate(v),
-            0xff03 | 0xff08..=0xff0e | 0xff4c..=0xff4f | 0xff51..=0xff7e => {
-                return; // TODO
+            0xff03 | 0xff08..=0xff0e | 0xff4c | 0xff4e..=0xff4f | 0xff51..=0xff7e => {
                 unimplemented!("write: I/O register: {:04x} {:02x}", addr, v)
             }
+            0xff4d => (), // CGB register
             0xff10..=0xff3f => self.apu.write_byte(addr, v),
             0xff40..=0xff45 | 0xff47..=0xff4b => self.ppu.write_byte(addr, v),
             0xff46 => self.dma_transfer(v),
