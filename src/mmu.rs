@@ -21,7 +21,7 @@ pub struct MMU {
     pub interrupt_flag: Interrupt,
     serial: Serial,
     timer: Timer,
-    joypad: JoyPad,
+    pub joypad: JoyPad,
 }
 
 bitflags!(

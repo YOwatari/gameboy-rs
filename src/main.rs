@@ -4,7 +4,7 @@ extern crate log;
 extern crate minifb;
 
 use log::info;
-use minifb::{Key, Scale, Window, WindowOptions};
+use minifb::{InputCallback, Key, KeyRepeat, Scale, Window, WindowOptions};
 use std::fs::File;
 use std::io::Read;
 use std::path;
@@ -20,9 +20,24 @@ mod serial;
 mod timer;
 
 use crate::cpu::CPU;
+use crate::joypad::KeyInput;
 use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 const CPU_CYCLES_PER_FRAME: u32 = 70224;
+
+fn key(key: Key) -> Option<KeyInput> {
+    match key {
+        Key::Down => Some(KeyInput::DOWN),
+        Key::Up => Some(KeyInput::UP),
+        Key::Left => Some(KeyInput::LEFT),
+        Key::Right => Some(KeyInput::RIGHT),
+        Key::Space => Some(KeyInput::START),
+        Key::Enter => Some(KeyInput::SELECT),
+        Key::Z => Some(KeyInput::B),
+        Key::X => Some(KeyInput::A),
+        _ => None,
+    }
+}
 
 fn open_rom_file(filepath: &str) -> Vec<u8> {
     let mut data = Vec::<u8>::new();
@@ -122,6 +137,18 @@ fn main() {
                     .update_with_buffer(&buffer, SCREEN_WIDTH, SCREEN_HEIGHT)
                     .unwrap();
             }
+
+            window.get_keys_pressed(KeyRepeat::Yes).map(|keys| {
+                for k in keys {
+                    key(k).map(|input| cpu.mmu.joypad.key_down(input));
+                }
+            });
+
+            window.get_keys_released().map(|keys| {
+                for k in keys {
+                    key(k).map(|input| cpu.mmu.joypad.key_up(input));
+                }
+            });
 
             sleep(now);
         }
