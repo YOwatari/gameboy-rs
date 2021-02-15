@@ -42,7 +42,7 @@ impl JoyPad {
                     0x10 => (self.register & 0xf0) | (self.input.bits & 0x0f),
                     // select direction keys
                     0x20 => (self.register & 0xf0) | ((self.input.bits >> 4) & 0x0f),
-                    _ => 0xff, // TODO unimplemented!("unknown key selection: {:02x}", self.register),
+                    _ => unimplemented!("unknown key selection: {:02x}", self.register),
                 }
             }
             _ => unimplemented!("read: JoyPad I/O {:04x}", addr),

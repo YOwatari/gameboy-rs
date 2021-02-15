@@ -4,7 +4,7 @@ extern crate log;
 extern crate minifb;
 
 use log::info;
-use minifb::{InputCallback, Key, KeyRepeat, Scale, Window, WindowOptions};
+use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
 use std::fs::File;
 use std::io::Read;
 use std::path;

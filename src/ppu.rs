@@ -415,7 +415,7 @@ impl PPU {
                     self.ly.wrapping_sub(sprite.y) & 0x07
                 } as u16;
                 line *= 2;
-                let tile_addr = (sprite.tile_number << 4) as u16;
+                let tile_addr = PPU::tile_addr(self.control, sprite.tile_number) as u16;
                 let data0 = self.vram[((tile_addr | line) & 0x1fff) as usize];
                 let data1 = self.vram[((tile_addr | (line + 1)) & 0x1fff) as usize];
 
@@ -424,7 +424,7 @@ impl PPU {
                 } else {
                     self.obp0
                 };
-                for x in (0..8).rev() {
+                for x in (0..7).rev() {
                     let color_mask = if sprite.flags.contains(SpriteFlags::FLIP_X) {
                         7 - (x & 0x07)
                     } else {
