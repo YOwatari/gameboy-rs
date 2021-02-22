@@ -82,8 +82,17 @@ impl CPU {
             return 0;
         }
 
-        let request = self.mmu.interrupt_enable.bits() & self.mmu.interrupt_flag.bits();
-        if request == 0 {
+        let mut request = Interrupt::empty();
+        for i in 0..5 {
+            let irq = self.mmu.interrupt_flag.bits() & (1 << i) != 0;
+            let ie = self.mmu.interrupt_enable.bits() & (1 << i) != 0;
+            if irq && ie {
+                request = Interrupt::from_bits_truncate(1 << i);
+                break;
+            }
+        }
+        let request = request;
+        if request.bits() == 0 {
             return 0;
         }
 
@@ -93,15 +102,14 @@ impl CPU {
         }
         self.ime = false;
 
-        let interrupt = Interrupt::from_bits_truncate(request);
-        self.mmu.interrupt_flag.set(interrupt, false);
-        match interrupt {
+        self.mmu.interrupt_flag.set(request, false);
+        match request {
             Interrupt::VBLANK => self._call(0x0040),
             Interrupt::LCD_STAT => self._call(0x0048),
             Interrupt::TIMER => self._call(0x0050),
             Interrupt::SERIAL => self._call(0x0080),
             Interrupt::JOYPAD => self._call(0x0070),
-            _ => unreachable!("Invalid interrupt request: {:?}", interrupt),
+            _ => unreachable!("Invalid interrupt request: {:?}", request),
         };
         16
     }

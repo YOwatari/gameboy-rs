@@ -84,9 +84,9 @@ impl MMU {
         self.write_byte(0xffff, 0x00);
     }
 
-    pub fn run(&mut self, tick: u32) {
-        self.ppu.run(tick);
-        self.timer.run(tick);
+    pub fn run(&mut self, ticks: u32) {
+        self.ppu.run(ticks);
+        self.timer.run(ticks);
 
         if self.ppu.interrupt_vblank {
             self.interrupt_flag.set(Interrupt::VBLANK, true);

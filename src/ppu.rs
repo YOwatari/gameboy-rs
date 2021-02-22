@@ -1,6 +1,5 @@
 use bitflags::bitflags;
 use std::cmp::Ordering;
-use std::env::split_paths;
 use std::fmt;
 
 const VRAM_SIZE: usize = 8 * 1024;
@@ -370,7 +369,7 @@ impl PPU {
                     flags: SpriteFlags::from_bits_truncate(self.oam[addr + 3]),
                 };
 
-                if self.ly.wrapping_sub(sprite.y) > size {
+                if self.ly.wrapping_sub(sprite.y) > size - 1 {
                     // not on line
                     continue;
                 }
@@ -426,16 +425,16 @@ impl PPU {
                 } else {
                     self.obp0
                 };
-                for x in (0..7).rev() {
+                for x in (0..8).rev() {
                     let color_mask = if sprite.flags.contains(SpriteFlags::FLIP_X) {
-                        7 - (x & 0x07)
+                        8 - (x & 0x07)
                     } else {
                         x & 0x07
                     } as usize;
                     let color_num =
                         (((data0 >> color_mask) & 1) << 1) | ((data1 >> color_mask) & 1);
                     let color = PPU::palette_color(palette, color_num);
-                    let target = sprite.x.wrapping_add(7 - x) - 1;
+                    let target = sprite.x.wrapping_add(8 - x) - 1;
 
                     if color_num == 0 {
                         continue;
