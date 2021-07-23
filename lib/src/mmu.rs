@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use std::fmt;
 
 use crate::apu::APU;
 use crate::cartridge::Cartridge;
@@ -11,6 +10,7 @@ use crate::timer::Timer;
 const WORKING_RAM_SIZE: usize = 8 * 1024;
 const HIGH_RAM_SIZE: usize = 128;
 
+#[derive(Debug)]
 pub struct MMU {
     pub cartridge: Cartridge,
     wram: [u8; WORKING_RAM_SIZE],
@@ -179,11 +179,5 @@ impl MMU {
     pub fn write_word(&mut self, addr: u16, v: u16) {
         self.write_byte(addr, v as u8);
         self.write_byte(addr.wrapping_add(1), (v >> 8) as u8);
-    }
-}
-
-impl fmt::Debug for MMU {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "MMU {{ ppu: {:?}, apu: {:?} }}", self.ppu, self.apu)
     }
 }

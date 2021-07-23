@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct Timer {
     div: u8,  // divider
     tima: u8, // counter

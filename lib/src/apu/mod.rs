@@ -1,14 +1,14 @@
-use bitflags::bitflags;
-use std::fmt;
-
 mod noise;
 mod square;
 mod wave;
 
-use noise::Noise;
-use square::Square;
-use wave::Wave;
+use bitflags::bitflags;
 
+use self::noise::Noise;
+use self::square::Square;
+use self::wave::Wave;
+
+#[derive(Debug)]
 pub struct APU {
     channel1: Square,
     channel2: Square,
@@ -21,6 +21,7 @@ pub struct APU {
     enable: bool,
 }
 
+#[derive(Debug)]
 struct MasterVolume {
     vin: bool,
     level: u8,
@@ -148,15 +149,5 @@ impl APU {
             0xff27..=0xff3f => (), // TODO
             _ => unimplemented!("write: Sound I/O {:04x} {:02x}", addr, v),
         }
-    }
-}
-
-impl fmt::Debug for APU {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "APU {{ nr1: {:?}, nr2: {:?}, nr3: {:?}, nr4: {:?} }}",
-            self.channel1, self.channel2, self.channel3, self.channel4,
-        )
     }
 }

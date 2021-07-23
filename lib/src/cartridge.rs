@@ -1,5 +1,4 @@
-use log::info;
-
+#[derive(Debug)]
 pub struct Cartridge {
     bios: Vec<u8>,
     rom: Vec<u8>,
@@ -13,7 +12,6 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn new(rom: Vec<u8>) -> Cartridge {
-        info!("MBC type: {:02x}", rom[0x147]);
         let ram_size: usize = match rom[0x0149] {
             0 => 0,
             1 => 2 * 1024,

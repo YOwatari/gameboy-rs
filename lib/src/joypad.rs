@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 
+#[derive(Debug)]
 pub struct JoyPad {
     register: u8,
     input: KeyInput,

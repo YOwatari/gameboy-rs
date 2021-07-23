@@ -1,13 +1,14 @@
-mod register;
+pub mod registers;
 
-use crate::cpu::register::Flags;
-use crate::cpu::register::Register;
-use crate::cpu::register::Register16::{AF, BC, DE, HL};
+use self::registers::Flags;
+use self::registers::Registers;
+use self::registers::Registers16::{AF, BC, DE, HL};
+
 use crate::mmu::{Interrupt, MMU};
 
 #[derive(Debug)]
 pub struct CPU {
-    register: Register,
+    register: Registers,
     pub mmu: MMU,
     ime: bool,
     ei: u8,
@@ -18,7 +19,7 @@ pub struct CPU {
 impl CPU {
     pub fn new(rom: Vec<u8>) -> CPU {
         CPU {
-            register: Register::new(),
+            register: Registers::new(),
             mmu: MMU::new(rom),
             ime: false,
             ei: 0,

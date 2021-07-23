@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 
+#[derive(Debug)]
 pub struct Serial {
     data: u8,
     control: Control,

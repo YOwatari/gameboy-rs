@@ -1,28 +1,22 @@
 extern crate clap;
 extern crate env_logger;
+extern crate gameboy_rs_lib;
 extern crate log;
 extern crate minifb;
 
 use log::info;
 use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
+
 use std::fs::File;
 use std::io::Read;
 use std::path;
 use std::{thread, time};
 
-mod apu;
-mod cartridge;
-mod cpu;
-mod joypad;
-mod mmu;
-mod ppu;
-mod serial;
-mod timer;
+use gameboy_rs_lib::cpu::CPU;
+use gameboy_rs_lib::joypad::KeyInput;
 
-use crate::cpu::CPU;
-use crate::joypad::KeyInput;
-use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
-
+const SCREEN_WIDTH: usize = 160;
+const SCREEN_HEIGHT: usize = 144;
 const CPU_CYCLES_PER_FRAME: u32 = 70224;
 
 fn key(key: Key) -> Option<KeyInput> {

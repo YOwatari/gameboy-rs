@@ -1,13 +1,14 @@
 use bitflags::bitflags;
 use std::cmp::Ordering;
-use std::fmt;
 
 const VRAM_SIZE: usize = 8 * 1024;
 pub const OAM_SIZE: usize = 160;
-pub const SCREEN_WIDTH: usize = 160;
-pub const SCREEN_HEIGHT: usize = 144;
-pub const SCREEN_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
+const SCREEN_WIDTH: usize = 160;
+const SCREEN_HEIGHT: usize = 144;
+const SCREEN_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
+
+#[derive(Debug)]
 pub struct PPU {
     vram: [u8; VRAM_SIZE],
     pub oam: [u8; OAM_SIZE],
@@ -446,15 +447,5 @@ impl PPU {
                 }
             }
         }
-    }
-}
-
-impl fmt::Debug for PPU {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "PPU: {{ lcdc: {:02x}, scy: {:02x}, scx: {:02x}, bgp: {:02x}, wy: {:02x}, wx: {:02x} }}",
-            self.control.bits, self.scy, self.scx, self.bgp, self.wy, self.wx,
-        )
     }
 }

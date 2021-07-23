@@ -1,5 +1,5 @@
 [package]
-name = "gameboy-rs-lib"
+name = "gameboy-rs"
 version = "0.1.0"
 authors = ["Yuta OHWATARI <yyutao88@gmail.com>"]
 edition = "2018"
@@ -7,4 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitflags = "1.2.1"
+clap = "2.33.3"
+env_logger = "0.8.2"
+log = "0.4.0"
+minifb = "0.19.2"
+gameboy-rs-lib = { path = "../lib" }

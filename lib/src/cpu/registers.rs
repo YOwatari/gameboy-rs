@@ -1,7 +1,7 @@
 use bitflags::bitflags;
-use std::fmt;
 
-pub struct Register {
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Registers {
     pub a: u8,
     f: Flags,
     pub b: u8,
@@ -23,16 +23,16 @@ bitflags!(
     }
 );
 
-pub enum Register16 {
+pub enum Registers16 {
     AF,
     BC,
     DE,
     HL,
 }
 
-impl Register {
-    pub fn new() -> Register {
-        Register {
+impl Registers {
+    pub fn new() -> Registers {
+        Registers {
             a: 0x00,
             f: Flags::empty(),
             b: 0x00,
@@ -46,30 +46,30 @@ impl Register {
         }
     }
 
-    pub fn read_word(&self, reg: Register16) -> u16 {
+    pub fn read_word(&self, reg: Registers16) -> u16 {
         match reg {
-            Register16::AF => (self.a as u16) << 8 | self.f.bits() as u16,
-            Register16::BC => (self.b as u16) << 8 | self.c as u16,
-            Register16::DE => (self.d as u16) << 8 | self.e as u16,
-            Register16::HL => (self.h as u16) << 8 | self.l as u16,
+            Registers16::AF => (self.a as u16) << 8 | self.f.bits() as u16,
+            Registers16::BC => (self.b as u16) << 8 | self.c as u16,
+            Registers16::DE => (self.d as u16) << 8 | self.e as u16,
+            Registers16::HL => (self.h as u16) << 8 | self.l as u16,
         }
     }
 
-    pub fn write_word(&mut self, reg: Register16, v: u16) {
+    pub fn write_word(&mut self, reg: Registers16, v: u16) {
         match reg {
-            Register16::AF => {
+            Registers16::AF => {
                 self.a = (v >> 8) as u8;
                 self.f = Flags::from_bits_truncate(v as u8);
             }
-            Register16::BC => {
+            Registers16::BC => {
                 self.b = (v >> 8) as u8;
                 self.c = v as u8;
             }
-            Register16::DE => {
+            Registers16::DE => {
                 self.d = (v >> 8) as u8;
                 self.e = v as u8;
             }
-            Register16::HL => {
+            Registers16::HL => {
                 self.h = (v >> 8) as u8;
                 self.l = v as u8;
             }
@@ -85,20 +85,15 @@ impl Register {
     }
 }
 
-impl fmt::Debug for Register {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Register {{ \
-a: 0x{:02x}, f: 0x{:02x}, b: 0x{:02x}, c: 0x{:02x}, d: 0x{:02x}, e: 0x{:02x}, h: 0x{:02x}, l: 0x{:02x}, \
-sp: 0x{:04x}, pc: 0x{:04x}, \
-Z: {:?} N: {:?}, H: {:?}, C: {:?} }}",
-            self.a, self.f, self.b, self.c, self.d, self.e, self.h, self.l,
-            self.sp, self.pc,
-            self.get_flag(Flags::Z),
-            self.get_flag(Flags::N),
-            self.get_flag(Flags::H),
-            self.get_flag(Flags::C),
-        )
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn can_write_word() {
+        let mut register = Registers::new();
+        register.write_word(Registers16::BC, 0b_10101111_11001100);
+        assert_eq!(register.b, 0b_1010_1111);
+        assert_eq!(register.c, 0b_1100_1100);
     }
 }
