@@ -7,7 +7,7 @@ open: main/target/x86_64-pc-windows-gnu/debug/gameboy-rs.exe
 	$< --rom=$(ROM) $(if $(BIOS),--bios=$(BIOS),)
 
 main/target/x86_64-pc-windows-gnu/debug/gameboy-rs.exe:
-	cd main && cargo build --target x86_64-pc-windows-gnu
+	cargo build --target x86_64-pc-windows-gnu
 
 debug:
-	cd main && RUST_BACKTRACE=1 RUST_LOG=info cargo run -- --rom $(ROM) $(if $(BIOS),--bios=$(BIOS),) --headless
+	RUST_BACKTRACE=1 RUST_LOG=info cargo run -- --rom $(ROM) $(if $(BIOS),--bios=$(BIOS),) --headless

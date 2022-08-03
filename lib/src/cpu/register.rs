@@ -84,16 +84,3 @@ impl Registers {
         self.f.set(f, v);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn can_write_word() {
-        let mut register = Registers::new();
-        register.write_word(Registers16::BC, 0b_10101111_11001100);
-        assert_eq!(register.b, 0b_1010_1111);
-        assert_eq!(register.c, 0b_1100_1100);
-    }
-}

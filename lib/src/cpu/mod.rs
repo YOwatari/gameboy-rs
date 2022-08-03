@@ -1,8 +1,8 @@
-pub mod registers;
+pub mod register;
 
-use self::registers::Flags;
-use self::registers::Registers;
-use self::registers::Registers16::{AF, BC, DE, HL};
+use self::register::Flags;
+use self::register::Registers;
+use self::register::Registers16::{AF, BC, DE, HL};
 
 use crate::mmu::{Interrupt, MMU};
 
