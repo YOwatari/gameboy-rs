@@ -54,7 +54,7 @@ fn sleep(now: time::Instant) {
 fn main() {
     env_logger::init();
 
-    let matches = clap::App::new("rust-gameboy")
+    let matches = clap::App::new("gameboy-rs")
         .arg(
             clap::Arg::with_name("rom")
                 .takes_value(true)
@@ -104,7 +104,7 @@ fn main() {
         }
     } else {
         let mut window = Window::new(
-            "rust-gameboy",
+            "gameboy-rs",
             SCREEN_WIDTH,
             SCREEN_HEIGHT,
             WindowOptions {
