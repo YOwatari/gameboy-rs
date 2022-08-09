@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Registers {
+pub struct Register {
     pub a: u8,
     f: Flags,
     pub b: u8,
@@ -30,9 +30,9 @@ pub enum Registers16 {
     HL,
 }
 
-impl Registers {
-    pub fn new() -> Registers {
-        Registers {
+impl Register {
+    pub fn new() -> Register {
+        Register {
             a: 0x00,
             f: Flags::empty(),
             b: 0x00,

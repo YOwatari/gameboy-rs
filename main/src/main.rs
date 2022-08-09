@@ -122,7 +122,7 @@ fn main() {
             let mut elapsed_tick: u32 = 0;
 
             while elapsed_tick < CPU_CYCLES_PER_FRAME {
-                elapsed_tick += cpu.run() as u32;
+                elapsed_tick += cpu.run();
             }
 
             if cpu.mmu.ppu.is_lcd_on() {

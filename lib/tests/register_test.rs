@@ -3,7 +3,7 @@ extern crate rstest;
 extern crate speculate;
 
 use register::Flags;
-use register::Registers;
+use register::Register;
 use register::Registers16;
 use rstest::*;
 use speculate::speculate;
